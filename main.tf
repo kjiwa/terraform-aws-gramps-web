@@ -1,27 +1,13 @@
-module "dns" {
-  source = "../../modules/dns"
-  providers = {
-    aws           = aws
-    aws.us_east_1 = aws.us_east_1
-  }
-
-  domains = var.domains
-}
-
 module "network" {
-  source = "../../modules/network"
+  source = "./modules/network"
   az     = local.az
 }
 
 module "storage" {
-  source = "../../modules/storage"
-  providers = {
-    aws        = aws
-    aws.backup = aws.backup
-  }
+  source = "./modules/storage"
 
   az                      = local.az
-  data_volume_gb          = var.data_volume_gb
+  data_volume_gib         = var.data_volume_gib
   data_volume_snapshot_id = var.data_volume_snapshot_id
   media_bucket_name       = var.media_bucket_name
   backup                  = var.backup
@@ -29,20 +15,20 @@ module "storage" {
 }
 
 module "email" {
-  source = "../../modules/email"
+  source = "./modules/email"
 
   env            = var.env
   primary_domain = var.primary_domain
-  zone_ids       = module.dns.zone_ids
+  zone_ids       = local.zone_ids
   dmarc_rua      = var.dmarc_rua
 }
 
 module "compute" {
-  source = "../../modules/compute"
+  source = "./modules/compute"
 
   env                        = var.env
   active                     = var.active
-  ami_ids                    = var.ami_ids
+  ami_ids                    = local.ami_ids
   subnet_ids                 = module.network.subnet_ids
   origin_sg_id               = module.network.origin_sg_id
   ebs_volume_id              = module.storage.ebs_volume_id
@@ -50,11 +36,11 @@ module "compute" {
   ebs_kms_key_arn            = module.storage.ebs_kms_key_arn
   media_bucket_name          = module.storage.media_bucket_name
   media_bucket_arn           = module.storage.media_bucket_arn
-  spot_enabled               = var.spot_enabled
-  spot_allocation_strategy   = var.spot_allocation_strategy
+  spot_enabled               = var.spot.enabled
+  spot_allocation_strategy   = var.spot.allocation_strategy
   instance_requirements      = var.instance_requirements
-  rightsize_schedule         = var.rightsize_schedule
-  rightsize_min_uptime_hours = var.rightsize_min_uptime_hours
+  rightsize_schedule         = var.rightsize.schedule
+  rightsize_min_uptime_hours = var.rightsize.min_uptime_hours
   cpu_credits                = var.cpu_credits
   status_host_metrics        = var.status.host_metrics
   status_volume_metrics      = var.status.volume_metrics
@@ -85,7 +71,7 @@ module "compute" {
 }
 
 module "edge" {
-  source = "../../modules/edge"
+  source = "./modules/edge"
   providers = {
     aws           = aws
     aws.us_east_1 = aws.us_east_1
@@ -95,22 +81,24 @@ module "edge" {
   primary_domain   = var.primary_domain
   redirect_domains = local.redirect_domains
   eip_public_ip    = module.compute.eip_public_ip
-  zone_ids         = module.dns.zone_ids
+  zone_ids         = local.zone_ids
 
   status_enabled            = var.status.enabled
   status_function_name      = var.status.enabled ? module.status[0].function_name : ""
   status_function_url       = var.status.enabled ? module.status[0].function_url : ""
   status_public_reliability = var.status.public_reliability
   status_disabled_panels    = local.status_disabled_panels
+
+  additional_origins         = var.additional_origins
+  additional_cache_behaviors = var.additional_cache_behaviors
 }
 
-# Authenticated operational status page at /_status (see the status variable
-# for the full feature description). Gated on Gramps Web's own role for the
+# Authenticated operational status page at /_status (see the status variable). Gated on Gramps Web's own role for the
 # caller's token, so it needs the same primary_domain as the app itself; the
 # ECR repository name (not just its URL/ARN, already passed to app_pipeline
 # below) is derived from the URL since compute does not output it bare.
 module "status" {
-  source = "../../modules/status"
+  source = "./modules/status"
   count  = var.status.enabled ? 1 : 0
 
   primary_domain                   = var.primary_domain
@@ -134,7 +122,7 @@ module "status" {
   backup_region                    = local.backup_region
   backup_copy_vault_arn            = module.storage.backup_copy_vault_arn != null ? module.storage.backup_copy_vault_arn : ""
   backup_dest_reader_role_arn      = local.backup_dest_reader_role_arn
-  spot_enabled                     = var.spot_enabled
+  spot_enabled                     = var.spot.enabled
   llm = {
     enabled            = var.llm.enabled
     model_id           = var.llm.model_id
@@ -143,7 +131,7 @@ module "status" {
     max_tokens         = var.llm.max_tokens
     max_context_length = var.llm.max_context_length
   }
-  gramps_web_version     = var.gramps_web_version
+  gramps_web_version     = var.gramps.version
   monthly_budget_usd     = var.monthly_budget_usd
   cost_enabled           = var.status.cost
   host_metrics_enabled   = var.status.host_metrics
@@ -164,7 +152,7 @@ resource "aws_codeconnections_connection" "github" {
 # Unconditional, unlike status above: the error pages exist regardless of
 # which optional features are on.
 module "web_build" {
-  source = "../../modules/web-build"
+  source = "./modules/web-build"
 
   repo_url           = var.repo_url
   source_branch      = var.source_branch
@@ -180,17 +168,17 @@ module "web_build" {
 }
 
 module "app_pipeline" {
-  source = "../../modules/app-pipeline"
+  source = "./modules/app-pipeline"
 
   connection_arn     = aws_codeconnections_connection.github.arn
   repo_full_name     = local.source_repo
   source_branch      = var.source_branch
-  gramps_web_version = var.gramps_web_version
-  gramps_base_image  = var.gramps_base_image
+  gramps_web_version = var.gramps.version
+  gramps_base_image  = var.gramps.base_image
   gramps_addons      = local.effective_addons
-  addons_source_repo = var.addons_source_repo
-  gramps_web_repo    = var.gramps_web_repo
-  gramps_web_ref     = var.gramps_web_ref
+  addons_source_repo = var.gramps.addons_source_repo
+  gramps_web_repo    = var.gramps.web_repo
+  gramps_web_ref     = var.gramps.web_ref
 
   ecr_repository_url = module.compute.ecr_repository_url
   ecr_repository_arn = module.compute.ecr_repository_arn
@@ -207,23 +195,23 @@ module "app_pipeline" {
 
 # Base-AMI patch rebuilds under a scoped role. Manual-trigger:
 #   aws codebuild start-build --project-name gramps-web-ami
-# then pin the printed IDs in ami_ids (tfvars) and apply to roll out.
+# then apply to roll out the newest AMIs (or pin the printed IDs in ami_ids).
 module "ami_build" {
-  source = "../../modules/ami-build"
+  source = "./modules/ami-build"
 
   repo_url        = var.repo_url
   source_branch   = var.source_branch
   connection_arn  = aws_codeconnections_connection.github.arn
-  region          = var.primary_region
+  region          = local.region
   codebuild_image = local.codebuild_image
 
   ecr_repository_url = module.compute.ecr_repository_url
   ecr_repository_arn = module.compute.ecr_repository_arn
-  gramps_web_version = var.gramps_web_version
+  gramps_web_version = var.gramps.version
 }
 
 module "monitoring" {
-  source = "../../modules/monitoring"
+  source = "./modules/monitoring"
 
   active                 = var.active
   primary_domain         = var.primary_domain
@@ -281,39 +269,6 @@ resource "aws_cloudwatch_metric_alarm" "instance_refresh_pathological" {
   }
 }
 
-# FinOps guardrails: a monthly cost budget and per-service anomaly detection,
-# both emailing alert_email. Budgets + Cost Explorer are global services reached
-# through the us-east-1 endpoint, so this module runs under that provider.
-module "finops" {
-  source = "../../modules/finops"
-  providers = {
-    aws = aws.us_east_1
-  }
-
-  alert_email        = var.alert_email
-  monthly_budget_usd = var.monthly_budget_usd
-}
-
-# SOC2 audit/detective controls (the cheap tier: no paid GuardDuty/Config/
-# Security Hub): a management-event CloudTrail into an isolated encrypted log
-# bucket, S3 server access logging on the media bucket, account IAM Access
-# Analyzer, and a strict IAM password policy.
-module "audit" {
-  source = "../../modules/audit"
-
-  alert_email        = var.alert_email
-  log_retention_days = var.log_retention_days
-
-  # Only cross_account grants an external account access to a key here, so only
-  # cross_account has an expected external-access finding to archive.
-  backup_account_id = var.backup.mode == "cross_account" ? var.backup.account_id : ""
-
-  log_source_buckets = [{
-    name = module.storage.media_bucket_name
-    arn  = module.storage.media_bucket_arn
-  }]
-}
-
 # Account-level Public Access Block: the backstop for the per-bucket PABs set
 # throughout the estate. A bucket created outside Terraform, or one whose own
 # PAB is later loosened, still cannot be made public while this is on. One free
@@ -325,34 +280,30 @@ resource "aws_s3_account_public_access_block" "this" {
   restrict_public_buckets = true
 }
 
-# Bedrock token-cost tripwire. Lives under aws.bedrock because AWS/Bedrock
-# metrics publish in the invocation region (local.llm_region), and CloudWatch
-# alarm actions must target an SNS topic in the alarm's own region -- which is
-# why this has its own topic here rather than reusing module.audit's (that one
-# is in the default region). Same idea as the audit topic though: a surprise
+# Bedrock token-cost tripwire. Created in the invocation region
+# (local.llm_region) because AWS/Bedrock metrics publish there and CloudWatch
+# alarm actions must target an SNS topic in the alarm's own region. A surprise
 # Bedrock bill is closer to a security event than a site outage, so it gets its
-# own channel, and the same alert_email confirms it. Gated on the assistant
-# being enabled and the threshold being non-zero.
+# own topic. Gated on the assistant being enabled and the threshold non-zero.
 resource "aws_sns_topic" "bedrock_alerts" {
-  count    = var.llm.enabled && var.llm.hourly_token_alarm > 0 ? 1 : 0
-  provider = aws.bedrock
-  name     = "gramps-web-bedrock-cost"
+  count  = var.llm.enabled && var.llm.hourly_token_alarm > 0 ? 1 : 0
+  region = local.llm_region
+  name   = "gramps-web-bedrock-cost"
 }
 
 resource "aws_sns_topic_subscription" "bedrock_alerts_email" {
   count     = var.llm.enabled && var.llm.hourly_token_alarm > 0 ? 1 : 0
-  provider  = aws.bedrock
+  region    = local.llm_region
   topic_arn = aws_sns_topic.bedrock_alerts[0].arn
   protocol  = "email"
   endpoint  = var.alert_email
 }
 
-# Total tokens = input + output via metric math; see the hourly_token_alarm note
-# in variables.tf for the dollar mapping and why the billing-based budget cannot
-# do this job.
+# Total tokens = input + output via metric math. Billing-based budgets lag
+# 8-24h, so they cannot catch a runaway chat loop within the hour.
 resource "aws_cloudwatch_metric_alarm" "bedrock_tokens" {
-  count    = var.llm.enabled && var.llm.hourly_token_alarm > 0 ? 1 : 0
-  provider = aws.bedrock
+  count  = var.llm.enabled && var.llm.hourly_token_alarm > 0 ? 1 : 0
+  region = local.llm_region
 
   alarm_name          = "gramps-web-bedrock-hourly-tokens"
   alarm_description   = "Bedrock input+output tokens over the last hour exceeded the runaway-cost threshold."

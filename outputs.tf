@@ -1,13 +1,3 @@
-output "dns_ns_records" {
-  description = "NS record values keyed by domain name. Set these at the registrar for every domain."
-  value       = module.dns.ns_records
-}
-
-output "dns_ds_records" {
-  description = "DS record strings keyed by domain name. Register at the registrar for DNSSEC-enabled domains."
-  value       = module.dns.ds_records
-}
-
 output "eip_public_ip" {
   description = "EIP public IP. The CloudFront origin address."
   value       = module.compute.eip_public_ip
@@ -53,11 +43,6 @@ output "ebs_kms_key_arn" {
   value       = module.storage.ebs_kms_key_arn
 }
 
-output "audit_log_bucket_name" {
-  description = "Isolated S3 server-access-log bucket (CloudTrail writes to a separate Object-Locked bucket)."
-  value       = module.audit.log_bucket_name
-}
-
 output "primary_distribution_id" {
   description = "CloudFront distribution ID for the primary site (manual invalidations)."
   value       = module.edge.primary_distribution_id
@@ -88,12 +73,7 @@ output "ami_build_project" {
   value       = module.ami_build.project_name
 }
 
-output "budget_name" {
-  description = "Monthly cost budget name."
-  value       = module.finops.budget_name
-}
-
-output "anomaly_monitor_arn" {
-  description = "Cost anomaly monitor ARN."
-  value       = module.finops.anomaly_monitor_arn
+output "primary_distribution_arn" {
+  description = "CloudFront distribution ARN for the primary site. Scope an additional_origins S3 bucket policy to it."
+  value       = module.edge.primary_distribution_arn
 }

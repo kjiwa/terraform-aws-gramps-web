@@ -30,7 +30,7 @@ locals {
   # cross_account: a vault the destination account owns, whose ARN is
   # CONSTRUCTED rather than passed in -- unlike a KMS key ARN (random UUID), a
   # vault ARN is fully determined by account + region + name, so the contract
-  # with terraform/roots/backup-account is the name and nothing has to be pasted into
+  # with keel's backup-vault-account module is the name and nothing has to be pasted into
   # tfvars after the fact. If the name drifts, copy jobs fail at runtime; there
   # is no plan-time check for a vault in another account.
   backup_copy_vault_arn = (
@@ -121,7 +121,7 @@ data "aws_iam_policy_document" "backup_key" {
   # aws_backup_vault_policy.this below for the timing trap).
   #
   # Deliberately the mirror of SourceAccountCopyIn on the destination key
-  # (terraform/roots/backup-account/kms.tf): same actions, opposite direction. The two
+  # (keel's backup-vault-account module): same actions, opposite direction. The two
   # accounts trust each other to move backups and nothing else -- never kms:*,
   # so neither can disable or schedule deletion of the other's key.
   #
@@ -205,7 +205,7 @@ resource "aws_backup_vault" "this" {
 # The return path. AWS Backup cannot restore across accounts, so recovering INTO
 # this account means copying the recovery point back here and restoring it. This
 # policy is the half that makes such a copy admissible: the mirror of
-# aws_backup_vault_policy.replica in terraform/roots/backup-account, and just as
+# aws_backup_vault_policy.replica in keel's backup-vault-account module, and just as
 # narrow. CopyIntoBackupVault only -- the backup account can hand a copy back and
 # can do nothing else here, not read our other recovery points, delete them, or
 # enumerate the vault. The trust is one action wide in each direction.
@@ -242,11 +242,11 @@ resource "aws_backup_vault_policy" "this" {
 
 # --- Cross-region destination vault (cross_region only) ----------------------
 # cross_account copies into a vault the destination account owns and manages
-# (terraform/roots/backup-account), so nothing is created here for it.
+# (keel's backup-vault-account module), so nothing is created here for it.
 
 resource "aws_kms_key" "backup_replica" {
-  count    = local.backup_cross_region ? 1 : 0
-  provider = aws.backup
+  count  = local.backup_cross_region ? 1 : 0
+  region = var.backup_region
 
   description             = "Encrypts the gramps-web-backup-replica vault in ${var.backup_region}"
   enable_key_rotation     = true
@@ -276,7 +276,7 @@ resource "aws_kms_key" "backup_replica" {
 
 resource "aws_kms_alias" "backup_replica" {
   count         = local.backup_cross_region ? 1 : 0
-  provider      = aws.backup
+  region        = var.backup_region
   name          = "alias/gramps-web-backup-replica"
   target_key_id = aws_kms_key.backup_replica[0].key_id
 }
@@ -290,7 +290,7 @@ resource "aws_kms_alias" "backup_replica" {
 # "Decommission the cross_region replica vault" appendix section.
 resource "aws_backup_vault" "replica" {
   count       = local.backup_cross_region ? 1 : 0
-  provider    = aws.backup
+  region      = var.backup_region
   name        = "gramps-web-backup-replica"
   kms_key_arn = aws_kms_key.backup_replica[0].arn
 
@@ -333,7 +333,7 @@ resource "aws_iam_role_policy_attachment" "backup" {
 }
 
 # One rule on var.backup.schedule (knob documented on the backup variable in
-# terraform/roots/stack/variables.tf).
+# variables.tf).
 #
 # Periodic (enable_continuous_backup defaults false), deliberately, though
 # continuous is the option that looks better on paper:

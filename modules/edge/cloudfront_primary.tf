@@ -282,7 +282,7 @@ resource "aws_cloudfront_distribution" "primary" {
   # cache key or leak into the cached response. Gated on both toggles:
   # status_public_reliability without status_enabled is meaningless (there
   # is no Lambda to route to), which the public_reliability validation in
-  # roots/stack/variables.tf forbids one layer up.
+  # variables.tf forbids one layer up.
   dynamic "ordered_cache_behavior" {
     for_each = (var.status_enabled && var.status_public_reliability) ? [1] : []
     content {

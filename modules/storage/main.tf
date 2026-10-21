@@ -110,9 +110,14 @@ resource "aws_kms_alias" "data" {
   target_key_id = aws_kms_key.data[0].key_id
 }
 
+moved {
+  from = aws_ebs_volume.this[0]
+  to   = aws_ebs_volume.this
+}
+
 resource "aws_ebs_volume" "this" {
   availability_zone = var.az
-  size              = var.data_volume_gb
+  size              = var.data_volume_gib
   type              = "gp3"
   encrypted         = true
   snapshot_id       = var.data_volume_snapshot_id

@@ -113,7 +113,7 @@ variable "base_url" {
 }
 
 variable "smtp" {
-  description = "SES SMTP connection details, owned by module.email (see terraform/modules/email/outputs.tf)."
+  description = "SES SMTP connection details, owned by module.email (see modules/email/outputs.tf)."
   type = object({
     host              = string
     username          = string
@@ -125,7 +125,7 @@ variable "smtp" {
 }
 
 variable "api" {
-  description = "Gramps Web API (backend) config. See the api variable in terraform/roots/stack/variables.tf for the full field-by-field rationale; this module renders it into the gramps-env SSM parameter (see ssm.tf) and does no further validation of its own."
+  description = "Gramps Web API (backend) config. See the api variable in variables.tf for the full field-by-field rationale; this module renders it into the gramps-env SSM parameter (see ssm.tf) and does no further validation of its own."
   type = object({
     tree                     = string
     tree_id                  = optional(string)
@@ -141,7 +141,7 @@ variable "api" {
 }
 
 variable "frontend" {
-  description = "Gramps Web frontend runtime config (window.grampsjsConfig). See the frontend variable in terraform/roots/stack/variables.tf for the full field-by-field rationale."
+  description = "Gramps Web frontend runtime config (window.grampsjsConfig). See the frontend variable in variables.tf for the full field-by-field rationale."
   type = object({
     hide_dna_link        = bool
     login_redirect       = string
@@ -152,7 +152,7 @@ variable "frontend" {
 }
 
 variable "llm" {
-  description = "AI chat assistant runtime config, resolved (region already picks the override vs primary_region). See the llm variable in terraform/roots/stack/variables.tf for the full field-by-field rationale; hourly_token_alarm is intentionally excluded here as it drives a root-level CloudWatch alarm, not app config."
+  description = "AI chat assistant runtime config, resolved (region already picks the override vs the module's region). See the llm variable in variables.tf for the full field-by-field rationale; hourly_token_alarm is intentionally excluded here as it drives a root-level CloudWatch alarm, not app config."
   type = object({
     enabled            = bool
     model_id           = string

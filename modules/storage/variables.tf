@@ -3,7 +3,7 @@ variable "az" {
   type        = string
 }
 
-variable "data_volume_gb" {
+variable "data_volume_gib" {
   description = "Size of the EBS data volume in GiB (gp3). Raising it is an in-place ModifyVolume; lowering it is not (scripts/azmove.sh shrink)."
   type        = number
   default     = 5
@@ -29,7 +29,7 @@ variable "backup" {
 }
 
 variable "backup_region" {
-  description = "Resolved destination region for off-site copies. Always a valid region so the aws.backup provider is well-formed; equals the primary region when backups are local/disabled (the aws.backup resources have count 0 then). Under cross_account this is the region half of the constructed destination vault ARN, so it must match the backup account's own region variable."
+  description = "Resolved destination region for off-site copies (string). Equals the primary region when backups are local or disabled, where the replica resources have count 0. Under cross_account this is the region half of the constructed destination vault ARN, so it must match the backup account's own region variable."
   type        = string
 }
 

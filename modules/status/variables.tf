@@ -69,7 +69,7 @@ variable "backup_vault_name" {
 }
 
 variable "backup_mode" {
-  description = "Off-site backup destination mode, reported as-is on the backups panel. See the backup variable in terraform/roots/stack/variables.tf for the full semantics (local/cross_region/cross_account/disabled); this module does not re-derive or re-explain them."
+  description = "Off-site backup destination mode, reported as-is on the backups panel. See the backup variable in variables.tf for the full semantics (local/cross_region/cross_account/disabled); this module does not re-derive or re-explain them."
   type        = string
   default     = ""
 }
@@ -123,7 +123,7 @@ variable "spot_enabled" {
 }
 
 variable "llm" {
-  description = "AI chat assistant runtime config, resolved (region already picks the override vs primary_region). See the llm variable in terraform/roots/stack/variables.tf for the full field-by-field rationale. enabled: if true, the assistant panel reports 30-day Bedrock InputTokenCount+OutputTokenCount from region; if false, the panel and its IAM grant do not exist. model_id/max_requests/max_tokens/max_context_length are shown as config rows on the Assistant panel; model_id is reported from config rather than discovered from CloudWatch (see the comment on assistant() in lambda/status.py for why a per-model breakdown isn't available)."
+  description = "AI chat assistant runtime config, resolved (region already picks the override vs the module's region). See the llm variable in variables.tf for the full field-by-field rationale. enabled: if true, the assistant panel reports 30-day Bedrock InputTokenCount+OutputTokenCount from region; if false, the panel and its IAM grant do not exist. model_id/max_requests/max_tokens/max_context_length are shown as config rows on the Assistant panel; model_id is reported from config rather than discovered from CloudWatch (see the comment on assistant() in lambda/status.py for why a per-model breakdown isn't available)."
   type = object({
     enabled            = bool
     model_id           = string
@@ -171,7 +171,7 @@ variable "volume_metrics_enabled" {
 }
 
 variable "public_reliability" {
-  description = "If true, GET /_status/public serves the reliability and incidents panels, redacted and unauthenticated, from a warm cache (PUBLIC_CACHE_TTL_S in lambda/status.py). If false, that route 404s regardless of what CloudFront routes to it. See public_reliability in the status variable, terraform/roots/stack/variables.tf, for the full feature description."
+  description = "If true, GET /_status/public serves the reliability and incidents panels, redacted and unauthenticated, from a warm cache (PUBLIC_CACHE_TTL_S in lambda/status.py). If false, that route 404s regardless of what CloudFront routes to it. See public_reliability in the status variable, variables.tf, for the full feature description."
   type        = bool
   default     = false
 }

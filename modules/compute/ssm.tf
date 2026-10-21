@@ -19,7 +19,7 @@ resource "aws_ssm_parameter" "flask_secret" {
 }
 
 # Gramps Web's frontend runtime config (window.grampsjsConfig -- see the root
-# frontend variable in terraform/roots/stack/variables.tf for the full
+# frontend variable in variables.tf for the full
 # option-by-option rationale). Built by merging conditional single-key maps
 # so an unset option is *absent* from config.js rather than present with a
 # zero/empty value -- upstream's own default only takes effect when the key

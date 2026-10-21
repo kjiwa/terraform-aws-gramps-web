@@ -262,7 +262,7 @@ logs = boto3.client("logs", config=BOTO_CONFIG)
 backup_client = boto3.client("backup", config=BOTO_CONFIG)
 
 # AWS/Bedrock metrics publish in the invocation region, which need not be this
-# Lambda's own region (see llm_region in terraform/roots/stack/variables.tf).
+# Lambda's own region (see llm_region in variables.tf).
 llm_cloudwatch = (
     boto3.client("cloudwatch", region_name=LLM_REGION, config=BOTO_CONFIG)
     if LLM_ENABLED == "true" and LLM_REGION
@@ -1937,7 +1937,7 @@ def describe_destination_vault():
     backup:CopyIntoBackupVault), so that path assumes the backup account's
     gramps-web-vault-reader role instead. Terraform sets the role ARN only
     when the destination account differs (see backup_dest_reader_role_arn in
-    roots/stack/locals.tf), so its presence is equivalent to comparing the two
+    locals.tf), so its presence is equivalent to comparing the two
     accounts here.
     """
     vault_name = BACKUP_COPY_VAULT_ARN.rsplit(":", 1)[-1]

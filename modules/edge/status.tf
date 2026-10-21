@@ -1,7 +1,7 @@
 # Status Lambda Function URL, fronted here via CloudFront OAC -- the same
 # access-control shape as the error pages, applied to a
 # compute origin instead of S3. See the `status` variable in
-# roots/stack/variables.tf for what the page shows and who can see it. Gated
+# variables.tf for what the page shows and who can see it. Gated
 # on var.status_enabled: off means none of this exists and every /_status*
 # path falls through to the app origin like any other unrouted path. The six
 # exact behaviors that route the on case (shell, config, data, public,

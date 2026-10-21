@@ -64,7 +64,7 @@ variable "status_function_url" {
 }
 
 variable "status_public_reliability" {
-  description = "If true (and status_enabled), also provision the /_status/public CloudFront behavior: CachingOptimized, no origin request policy (no client headers reach it, so X-Gramps-Token can never land on a cached response). If false, the behavior doesn't exist at all, so the request falls through to the app (EC2) origin and 404s there, never reaching the status Lambda. See public_reliability in the status variable, terraform/roots/stack/variables.tf, for the full feature description."
+  description = "If true (and status_enabled), also provision the /_status/public CloudFront behavior: CachingOptimized, no origin request policy (no client headers reach it, so X-Gramps-Token can never land on a cached response). If false, the behavior doesn't exist at all, so the request falls through to the app (EC2) origin and 404s there, never reaching the status Lambda. See public_reliability in the status variable, variables.tf, for the full feature description."
   type        = bool
 }
 

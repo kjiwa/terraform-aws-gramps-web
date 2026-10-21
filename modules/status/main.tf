@@ -1,6 +1,6 @@
 # Status Lambda behind a Function URL that CloudFront reaches via OAC (see
 # edge/status.tf for that half). See the `status` variable in
-# roots/stack/variables.tf for what the page shows, who can see it, and what
+# variables.tf for what the page shows, who can see it, and what
 # public_reliability does; see lambda/status.py's docstring for the code
 # structure. Gramps Web's own users/roles are the sole identity source for
 # the gated routes -- lambda/status.py forwards the caller's token to GET

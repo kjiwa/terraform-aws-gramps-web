@@ -1,7 +1,7 @@
 # Static CloudFront custom error pages (502/503/504). Terraform owns the
 # bucket, OAC, and read policy below; page content is owned by
 # build/web/src/error/ and published directly to this bucket by the
-# gramps-web-frontend CodeBuild project (terraform/modules/web-build) -- there
+# gramps-web-frontend CodeBuild project (modules/web-build) -- there
 # is no aws_s3_object resource here for the pages themselves. This split lets
 # deploy.sh web ship error page updates without requiring a Terraform apply.
 #

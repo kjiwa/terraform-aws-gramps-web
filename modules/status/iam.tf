@@ -139,7 +139,7 @@ data "aws_iam_policy_document" "status" {
 
   # Absent unless backup.mode = cross_account: the destination vault lives in
   # another account, and DescribeBackupVault there has to run as a principal in
-  # that account. See terraform/roots/backup-account/iam.tf for the role this
+  # that account. See keel's backup-vault-account module for the role this
   # assumes.
   dynamic "statement" {
     for_each = var.backup_dest_reader_role_arn != "" ? [1] : []

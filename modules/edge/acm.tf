@@ -17,7 +17,7 @@ locals {
 }
 
 # CloudFront only accepts certificates issued in us-east-1, so these pin to
-# the us_east_1 provider alias rather than following primary_region.
+# the us_east_1 provider alias rather than the default provider's region.
 resource "aws_acm_certificate" "this" {
   provider = aws.us_east_1
   for_each = local.all_domains

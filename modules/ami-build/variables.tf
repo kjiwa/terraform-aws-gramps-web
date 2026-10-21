@@ -10,7 +10,7 @@ variable "source_branch" {
 }
 
 variable "region" {
-  description = "Region the AMIs are built in (the stack's primary_region). Injected into the build as REGION and used to fence the role's EC2 grants."
+  description = "Region the AMIs are built in (the module's region). Injected into the build as REGION and used to fence the role's EC2 grants."
   type        = string
 }
 
