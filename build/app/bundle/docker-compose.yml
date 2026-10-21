@@ -20,7 +20,7 @@ x-gramps-volumes: &gramps-volumes
   - ./config.js:/app/static/config.js:ro
 
 # app.env: the whole non-secret GRAMPSWEB_* env, rendered by Terraform
-# (terraform/modules/compute/ssm.tf's gramps_env parameter) and fetched
+# (modules/compute/ssm.tf's gramps_env parameter) and fetched
 # verbatim by the after_install hook. Named app.env rather than gramps.env to
 # avoid colliding with the CodeDeploy bundle's own gramps.env (the digest-pinned
 # image reference written by build/app/build.sh) -- a different file in a

@@ -4,19 +4,16 @@ repos:
     hooks:
       - id: terraform_fmt
       - id: terraform_validate
-        # modules/edge and modules/storage declare
-        # configuration_aliases, which cannot bind when a module is validated
-        # standalone as this hook does -- there is no root to supply the alias
-        # (hashicorp/terraform#28490). tflint still lints both directly,
-        # so lint coverage is intact. NOTE: validate coverage is NOT fully
-        # intact -- this hook runs per-directory on changed files and does not
-        # walk up to callers, so a commit touching only one of these modules
-        # gets no validate at all. CI validates every root under
-        # terraform/roots/ to close that gap.
-        exclude: ^terraform/modules/(edge|storage)/
+        # The root module and modules/edge declare configuration_aliases, which
+        # cannot bind when a module is validated standalone as this hook does
+        # -- there is no caller to supply the alias (hashicorp/terraform#28490).
+        # tflint still lints both directly. This hook runs per-directory and
+        # does not walk up to callers, so CI validates examples/*/ and runs
+        # terraform test to cover them in context.
+        exclude: ^([^/]+\.tf|modules/edge/.*)$
       - id: terraform_tflint
         args:
-          - --args=--config=__GIT_WORKING_DIR__/terraform/.tflint.hcl
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.11.0.1
@@ -43,7 +40,7 @@ repos:
     hooks:
       # Both schemas are valid JSON Schema draft 2020-12.
       - id: check-metaschema
-        files: ^terraform/modules/status/lambda/status_(payload|series)\.schema\.json$
+        files: ^modules/status/lambda/status_(payload|series)\.schema\.json$
       # Every frontend test fixture validates against it -- this is what
       # keeps the TS client's fixtures and status.py's real payload shape
       # from drifting apart; see status_payload.schema.json's own
@@ -53,11 +50,20 @@ repos:
       - id: check-jsonschema
         files: ^build/web/tests/fixtures/.*\.json$
         exclude: ^build/web/tests/fixtures/series/
-        args: [--schemafile, terraform/modules/status/lambda/status_payload.schema.json]
+        args: [--schemafile, modules/status/lambda/status_payload.schema.json]
       # status_series.schema.json $refs status_payload.schema.json's own
       # defs by relative path (see its own description) -- deliberately no
       # $id, so this resolves against the schema file's own path rather
       # than an unresolvable one.
       - id: check-jsonschema
         files: ^build/web/tests/fixtures/series/.*\.json$
-        args: [--schemafile, terraform/modules/status/lambda/status_series.schema.json]
+        args: [--schemafile, modules/status/lambda/status_series.schema.json]
+
+  - repo: local
+    hooks:
+      - id: docs
+        name: README module reference is current
+        entry: sh scripts/docs.sh --check
+        language: system
+        pass_filenames: false
+        files: ^([^/]+\.tf|\.terraform-docs\.yml)$

@@ -9,12 +9,12 @@ updates:
       actions:
         patterns: ["*"]
 
-  # Roots only, not the 14 terraform/modules/*/versions.tf floors: those are
-  # deliberately broad (">= 6.45", see each file's own comment) and pinned
-  # exactly only via the root's lock file.
+  # The examples' lock files only, not the modules' versions.tf floors: those
+  # are deliberately broad (">= 6.45") and pinned exactly only by a consumer's
+  # lock file.
   - package-ecosystem: terraform
     directories:
-      - /terraform/roots/*
+      - /examples/*
     schedule:
       interval: weekly
     groups:

@@ -77,7 +77,7 @@ usage() {
 }
 
 # -> the media bucket name: the explicit tfvars value if set, else the
-# derived name terraform/modules/storage/main.tf falls back to. Mirrors that
+# derived name modules/storage/main.tf falls back to. Mirrors that
 # module's locals.media_bucket_name exactly.
 media_bucket_name() {
   local name

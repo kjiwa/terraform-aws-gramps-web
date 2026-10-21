@@ -77,7 +77,7 @@ disk_bytes() {
 }
 
 # Optional, additive: publishes disk/memory usage to the GrampsWeb CloudWatch
-# namespace for the status page's host_metrics panel (terraform/modules/
+# namespace for the status page's host_metrics panel (modules/
 # status). No ASG dimension -- this is a single-instance deployment, same as
 # the availability canary's SiteUp metric. Gated on STATUS_HOST_METRICS,
 # polled via load_runtime_env from the instance_runtime SSM parameter

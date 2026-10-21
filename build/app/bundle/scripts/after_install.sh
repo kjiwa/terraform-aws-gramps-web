@@ -59,7 +59,7 @@ write_env_file() {
   } >"$COMPOSE_DIR/.env"
 
   # Non-secret GRAMPSWEB_* config, authored as ready-to-use KEY=value lines in
-  # SSM (terraform/modules/compute/ssm.tf's gramps_env parameter, named by
+  # SSM (modules/compute/ssm.tf's gramps_env parameter, named by
   # $SSM_RUNTIME_PARAM in instance.env). Fetched verbatim, no parsing on this
   # end.
   log "Rendering $COMPOSE_DIR/app.env..."

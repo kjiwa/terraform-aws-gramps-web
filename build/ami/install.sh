@@ -50,7 +50,7 @@ install_codedeploy_agent() {
 }
 
 # Ships codedeploy-agent's log, gramps-deploy.log, and cloud-init's two logs
-# to CloudWatch (terraform/modules/compute/logs.tf's one log group) -- the
+# to CloudWatch (modules/compute/logs.tf's one log group) -- the
 # only instance-side visibility into a launch that never reaches app-level
 # health checks. Unlike CodeDeploy, the package is in AL2023's own repos, so
 # no S3-download dance. fetch-config both converts the JSON to the agent's

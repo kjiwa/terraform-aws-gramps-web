@@ -3,7 +3,8 @@
 # their upstream latest, and prints the ones behind. Dependabot has no
 # Packer ecosystem (and neither does Renovate), and nothing reads
 # .terraform-version, terraform.yml's setup-tflint version input,
-# terraform/.tflint.hcl, or ci.yml's GITLEAKS_VERSION -- these pins would otherwise rot silently.
+# .tflint.hcl, ci.yml's GITLEAKS_VERSION, or the gramps.version default --
+# these pins would otherwise rot silently.
 # Read-only: never edits a pin itself, since every one of these has a manual
 # consequence (an AMI rebuild, a `tflint --init`, a `tfenv install`) a bot
 # can't discharge.
@@ -86,9 +87,19 @@ check_tflint() {
 check_tflint_ruleset_aws() {
   local current latest
   current="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)"$/\1/p' \
-    "$REPO_ROOT/terraform/.tflint.hcl")"
+    "$REPO_ROOT/.tflint.hcl")"
   latest="$(latest_gh_release terraform-linters/tflint-ruleset-aws)"
   report "tflint AWS ruleset (.tflint.hcl)" "$current" "$latest"
+}
+
+# The default of the gramps.version variable must track the newest upstream
+# grampsweb release, which tags gramps-project/gramps-web (the image tag is the
+# same version string).
+check_gramps_web() {
+  current="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*optional(string, "\([0-9.]*\)")$/\1/p' \
+    "$REPO_ROOT/variables.tf" | head -n 1)"
+  latest="$(latest_gh_release gramps-project/gramps-web)"
+  report "Gramps Web (variables.tf gramps.version)" "$current" "$latest"
 }
 
 check_gitleaks() {
@@ -132,6 +143,7 @@ main() {
   check_tflint
   check_tflint_ruleset_aws
   check_gitleaks
+  check_gramps_web
   check_valkey
 
   [ "$BEHIND" -eq 0 ] || die "$BEHIND pin(s) behind upstream"

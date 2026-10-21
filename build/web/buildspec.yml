@@ -20,7 +20,7 @@ phases:
       - sh build/web/publish.sh
 
 # npm's content-addressed tarball cache, backed by the project's S3 cache
-# bucket -- see terraform/modules/web-build/main.tf's cache bucket.
+# bucket -- see modules/web-build/main.tf's cache bucket.
 cache:
   paths:
     - /root/.npm/**/*

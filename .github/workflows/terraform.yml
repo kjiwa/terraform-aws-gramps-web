@@ -14,7 +14,11 @@ name: terraform
 on:
   pull_request:
     paths:
-      - 'terraform/**'
+      - '*.tf'
+      - 'modules/**'
+      - 'tests/**'
+      - 'examples/**'
+      - '.tflint.hcl'
       - 'build/ami/**'
       - 'build/app/**'
       - 'build/web/tests/fixtures/**'
@@ -26,7 +30,11 @@ on:
   push:
     branches: [main, master]
     paths:
-      - 'terraform/**'
+      - '*.tf'
+      - 'modules/**'
+      - 'tests/**'
+      - 'examples/**'
+      - '.tflint.hcl'
       - 'build/ami/**'
       - 'build/app/**'
       - 'build/web/tests/fixtures/**'
@@ -85,53 +93,54 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.tflint.d/plugins
-          key: tflint-${{ hashFiles('terraform/.tflint.hcl') }}
+          key: tflint-${{ hashFiles('.tflint.hcl') }}
           restore-keys: |
             tflint-
-      # Provider cache for every `terraform init` below (validate hook and the
-      # validate-all-roots loop); terraform requires the directory to exist.
+      # Provider cache for every `terraform init` below (validate hook, the
+      # examples loop, and terraform test); terraform requires the directory to exist.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ env.TF_PLUGIN_CACHE_DIR }}
-          key: terraform-plugins-${{ hashFiles('terraform/roots/*/.terraform.lock.hcl') }}
+          key: terraform-plugins-${{ hashFiles('examples/*/.terraform.lock.hcl') }}
       - run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
-      # Install the AWS ruleset pinned in terraform/.tflint.hcl so the
+      # Install the AWS ruleset pinned in .tflint.hcl so the
       # terraform_tflint hook finds it. GITHUB_TOKEN avoids the unauthenticated
       # GitHub API rate limit when fetching the plugin release.
       - name: tflint init
-        run: tflint --init --config "$GITHUB_WORKSPACE/terraform/.tflint.hcl"
+        run: tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
-      # The terraform_validate hook excludes modules that declare
-      # configuration_aliases (edge, storage), which cannot validate standalone.
-      # Validate every root instead: each root is a caller that supplies those
-      # aliases, so the excluded modules are checked in context, and looping over
-      # terraform/roots/*/ picks up new roots automatically. -backend=false keeps
-      # it credential-free like the rest of this job. This does NOT run in the
-      # local pre-commit hook (which is per-changed-dir), so a commit touching
-      # only an excluded module relies on this step for validate coverage.
-      - name: validate all roots
+      # The terraform_validate hook excludes the root module and modules/edge,
+      # which declare configuration_aliases and cannot validate standalone.
+      # Validate every example instead (each is a caller that supplies the
+      # aliases) and run the contract tests, which bind the aliases to mock
+      # providers. -backend=false keeps it credential-free. The hook is
+      # per-changed-dir, so a commit touching only an excluded module relies
+      # on this step.
+      - name: validate examples
         run: |
-          for root in terraform/roots/*/; do
-            terraform -chdir="$root" init -backend=false -input=false
-            terraform -chdir="$root" validate
+          for example in examples/*/; do
+            terraform -chdir="$example" init -backend=false -input=false
+            terraform -chdir="$example" validate
           done
-      # Every provider block in every root's lock file must carry three
-      # h1: hashes (darwin_arm64, darwin_amd64, linux_amd64) -- that's what
-      # ./tf.sh <instance> lock records (see scripts/tf.sh's "lock" case).
-      # CI's own `terraform init` above only ever proves linux_amd64, so a
-      # lock rewrite that dropped the darwin platforms (e.g. an
-      # unreconciled Dependabot PR) would pass CI and only surface later as
-      # a checksum error on someone's Mac. Fix: re-run `./tf.sh <instance>
-      # lock` and commit the result.
+      - name: terraform test
+        run: |
+          terraform init -backend=false -input=false
+          terraform test
+      # Every provider block in an example's lock file must carry three h1:
+      # hashes (darwin_arm64, darwin_amd64, linux_amd64). CI's own init only
+      # proves linux_amd64, so a lock rewrite that dropped the darwin platforms
+      # (e.g. an unreconciled Dependabot PR) would pass CI and fail later on a
+      # Mac. Fix: terraform providers lock -platform=darwin_arm64
+      # -platform=darwin_amd64 -platform=linux_amd64
       - name: check lock file platform coverage
         run: |
-          for lock in terraform/roots/*/.terraform.lock.hcl; do
+          for lock in examples/*/.terraform.lock.hcl; do
             providers=$(grep -c '^provider "' "$lock")
             hashes=$(grep -c '^    "h1:' "$lock")
             [ "$hashes" -eq $((providers * 3)) ] ||
-              { echo "::error file=$lock::expected 3 h1 hashes per provider ($providers providers), found $hashes -- re-run ./tf.sh <instance> lock"; exit 1; }
+              { echo "::error file=$lock::expected 3 h1 hashes per provider ($providers providers), found $hashes"; exit 1; }
           done
       - name: packer fmt
         run: packer fmt -check -recursive build/ami

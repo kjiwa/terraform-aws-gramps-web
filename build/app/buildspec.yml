@@ -6,7 +6,7 @@ version: 0.2
 # artifact. All logic lives in build/app/build.sh beside this file; the
 # CodeBuild project injects ECR_REPO_URL and GRAMPS_WEB_VERSION. Requires
 # privileged mode (docker buildx): the managed image pinned by codebuild_image
-# in terraform/roots/stack/locals.tf auto-starts dockerd under privileged mode
+# in locals.tf auto-starts dockerd under privileged mode
 # and ships git + the AWS CLI + buildx.
 #
 # Paths below are relative to the CodeBuild source root, not to this file.

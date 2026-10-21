@@ -217,7 +217,7 @@ backup_field() {
 # otherwise cross_region/cross_account default to us-east-2, and local/
 # disabled fall back to primary_region (via resolve_region, whose own
 # us-east-1 default matches primary_region's own default). Mirrors
-# terraform/roots/stack/locals.tf's backup_region local.
+# locals.tf's backup_region local.
 resolve_backup_region() {
   local mode region
   mode="$(backup_field mode local)"
@@ -234,7 +234,7 @@ resolve_backup_region() {
 
 # -> the off-site copy destination vault ARN, or empty when backup.mode is
 # local/disabled. Mirrors local.backup_copy_vault_arn in
-# terraform/modules/storage/backup.tf: cross_region copies to a vault THAT
+# modules/storage/backup.tf: cross_region copies to a vault THAT
 # module owns, named by the gramps-web-backup-replica repo constant;
 # cross_account copies to a vault the destination account owns, named by
 # backup.dest_vault_name (default gramps-web-backup-replica, matching the

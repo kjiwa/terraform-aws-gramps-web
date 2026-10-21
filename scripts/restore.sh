@@ -284,7 +284,7 @@ resolve_scratch_bucket() {
 # ("Can not use original encryption on recovery point that was copied from
 # another region"); this is safe unconditionally, not just cross-account,
 # since the media bucket's own encryption is already SSE-S3
-# (terraform/modules/storage/main.tf), so the override is a no-op on the
+# (modules/storage/main.tf), so the override is a no-op on the
 # same-account path. RestoreACLs is forced off for the same reason: the
 # media bucket is BucketOwnerEnforced, so it has no object ACLs to restore,
 # but the scratch bucket (create_scratch_bucket) is ACLs-disabled by

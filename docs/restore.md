@@ -72,7 +72,7 @@ byte match, both inside the backup account.
 
 Under `backup.mode = "cross_account"`, the destination vault's ARN is built
 from `backup.region`, not `primary_region`
-(`terraform/modules/storage/backup.tf`) — so as long as your deployment sets
+(`modules/storage/backup.tf`) — so as long as your deployment sets
 `backup.region` to a region different from `primary_region` (check your own
 tfvars; there is no repo-wide default this doc can promise), every off-site
 copy already sits outside a `<primary_region>` outage, not just outside the
@@ -215,10 +215,10 @@ Idempotent; safe to re-run.
 
 ### Rebuilding a fresh environment from a restored volume
 
-`data_volume_snapshot_id` (`terraform/roots/stack/variables.tf`) creates the
+`data_volume_snapshot_id` (`variables.tf`) creates the
 data volume from an EC2 **snapshot** ID at first apply — the disaster-rebuild
 path for a brand-new environment, not a live one (see
-`terraform/modules/storage/main.tf` for why a live environment can't use this
+`modules/storage/main.tf` for why a live environment can't use this
 to "restore"). **That's what [az-move.md](az-move.md) is for.**
 
 `restore.sh offsite` produces a *volume*, not a snapshot, so to feed
@@ -240,9 +240,9 @@ data_volume_snapshot_id = "snap-..."
 ```
 
 The restored volume's AZ does not need to match anything at this point —
-snapshots are region-scoped, not AZ-scoped, and `terraform/modules/network`
+snapshots are region-scoped, not AZ-scoped, and `modules/network`
 picks (or you pin, via `az`) whatever AZ the new environment's subnet lands
-in. `terraform/modules/compute`'s `AttachVolume` IAM grant is scoped to the
+in. `modules/compute`'s `AttachVolume` IAM grant is scoped to the
 *new* volume's ARN once Terraform creates it, so no manual tagging is needed
 on this path (unlike `restore.sh local`/`copy-back`, which tag the volume
 themselves for exactly this reason) — the resulting volume is created and
