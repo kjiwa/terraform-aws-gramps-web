@@ -1,0 +1,55 @@
+name: pins
+
+# Monthly check for the tool versions no ecosystem bot covers -- see
+# scripts/check-pins.sh's header for which six and why. Opens or updates a
+# single tracking issue rather than a PR: every one of these bumps has a
+# manual consequence (an AMI rebuild, a `tflint --init`, a `tfenv install`)
+# a merge button doesn't discharge.
+
+on:
+  schedule:
+    - cron: '17 6 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - id: pins
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          report="$(sh scripts/check-pins.sh 2>&1)"
+          echo "behind=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          {
+            echo 'report<<PINS_EOF'
+            echo "$report"
+            echo 'PINS_EOF'
+          } >> "$GITHUB_OUTPUT"
+      - if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT: ${{ steps.pins.outputs.report }}
+        run: |
+          gh label create pins --color ededed --description "toolchain pins behind upstream" --force
+          existing=$(gh issue list --state open --search 'in:title "Toolchain pins behind upstream"' --json number --jq '.[0].number')
+          if [ "${{ steps.pins.outputs.behind }}" = "0" ]; then
+            [ -z "$existing" ] || gh issue close "$existing" \
+              --comment "All tracked pins are up to date as of this run."
+            exit 0
+          fi
+          # shellcheck disable=SC2016 # single-quoted on purpose: the
+          # backticks are literal markdown, not shell command substitution.
+          body="$(printf 'scripts/check-pins.sh found pins behind upstream:\n\n```\n%s\n```\n\nRun `sh scripts/check-pins.sh` locally for the source of each line, and see its header comment for why these are checked here instead of by Dependabot.' "$REPORT")"
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body"
+          else
+            gh issue create --title "Toolchain pins behind upstream" --label pins --body "$body"
+          fi

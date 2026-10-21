@@ -1,0 +1,37 @@
+version: 0.0
+os: linux
+
+files:
+  - source: docker-compose.yml
+    destination: /opt/gramps
+
+file_exists_behavior: OVERWRITE
+
+hooks:
+  # Runs from the PREVIOUS revision's scripts; skipped on the first deploy.
+  ApplicationStop:
+    - location: scripts/application_stop.sh
+      timeout: 60
+      runas: root
+
+  BeforeInstall:
+    # 60s over the script's worst case (600s infra wait + 60s docker wait),
+    # so the script's own error path runs instead of the agent killing it.
+    - location: scripts/before_install.sh
+      timeout: 720
+      runas: root
+
+  AfterInstall:
+    - location: scripts/after_install.sh
+      timeout: 600
+      runas: root
+
+  ApplicationStart:
+    - location: scripts/application_start.sh
+      timeout: 300
+      runas: root
+
+  ValidateService:
+    - location: scripts/validate_service.sh
+      timeout: 300
+      runas: root

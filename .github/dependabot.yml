@@ -1,0 +1,51 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Roots only, not the 14 terraform/modules/*/versions.tf floors: those are
+  # deliberately broad (">= 6.45", see each file's own comment) and pinned
+  # exactly only via the root's lock file.
+  - package-ecosystem: terraform
+    directories:
+      - /terraform/roots/*
+    schedule:
+      interval: weekly
+    groups:
+      providers:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /build/web
+    schedule:
+      interval: weekly
+    groups:
+      frontend:
+        patterns: ["*"]
+    # typescript-eslint peers typescript ">=4.8.4 <6.1.0"; a TS major breaks
+    # `npm ci` for every package in the group, not just typescript.
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: monthly
+
+  # skip-ecosystem: docker -- Dockerfile FROM is fully parameterized; the
+  # version lives in tfvars per environment, upgraded by a deliberate procedure.

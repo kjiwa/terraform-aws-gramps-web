@@ -1,0 +1,12 @@
+dist/
+node_modules/
+pages/errors/generated/
+src/generated/
+test-results/
+playwright-report/
+# toMatchFileSnapshot() output: deliberately one line per file (see
+# tests/support/normalize.ts) so a diff shows the exact markup that
+# changed. Prettier's HTML formatter would pretty-print these on every
+# `format` run, which both defeats that and makes the committed file stop
+# matching what the test itself writes at runtime.
+tests/unit/__snapshots__/

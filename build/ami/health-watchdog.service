@@ -1,0 +1,11 @@
+# Single watchdog tick: curl localhost, count consecutive failures, mark the
+# instance Unhealthy in the ASG at the threshold. Driven by
+# gramps-health-watchdog.timer; installed and enabled by build/ami/install.sh.
+[Unit]
+Description=gramps app health check tick (ASG self-healing)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/gramps-health-watchdog

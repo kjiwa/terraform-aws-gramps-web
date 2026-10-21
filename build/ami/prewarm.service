@@ -1,0 +1,15 @@
+# Sweeps the root filesystem to force EBS snapshot hydration ahead of the
+# app's own cold-import reads. Installed and enabled by build/ami/install.sh.
+# Deliberately no After=/Before= on cloud-init or CodeDeploy: it must run
+# concurrently with them, racing to warm blocks before the app wants them,
+# not gate the boot. Needs no network -- starts as early as multi-user.target
+# allows.
+[Unit]
+Description=Pre-warm the gramps-web root filesystem from the EBS snapshot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/gramps-prewarm
+
+[Install]
+WantedBy=multi-user.target

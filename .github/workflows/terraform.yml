@@ -1,0 +1,139 @@
+name: terraform
+
+# Pre-commit suite (terraform fmt/validate/tflint + packer fmt/validate +
+# ruff + actionlint + shellcheck) on PRs and pushes to the default branch.
+# No AWS credentials are needed: terraform_validate uses -backend=false,
+# tflint only downloads its ruleset plugin, packer validate runs -syntax-only
+# (a full validate against amazon-ebs needs credentials, and that already
+# happens for real inside CodeBuild -- see build/ami/build.sh), and
+# shellcheck-py bundles its own binary. A real `terraform plan` (which needs
+# state + cloud auth) is deliberately NOT run here; add it later behind GitHub
+# OIDC if you want plan-on-PR. .github/workflows/** is listed so workflow edits
+# still reach the actionlint hook.
+
+on:
+  pull_request:
+    paths:
+      - 'terraform/**'
+      - 'build/ami/**'
+      - 'build/app/**'
+      - 'build/web/tests/fixtures/**'
+      - 'build/web/publish.sh'
+      - 'scripts/**'
+      - '.pre-commit-config.yaml'
+      - '.terraform-version'
+      - '.github/workflows/**'
+  push:
+    branches: [main, master]
+    paths:
+      - 'terraform/**'
+      - 'build/ami/**'
+      - 'build/app/**'
+      - 'build/web/tests/fixtures/**'
+      - 'build/web/publish.sh'
+      - 'scripts/**'
+      - '.pre-commit-config.yaml'
+      - '.terraform-version'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Workaround for GitHub's Node 20 -> 24 runtime migration for JavaScript
+  # actions until CI stops emitting Node 20 deprecation warnings.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    env:
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugin-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+      # Single source of truth for the Terraform CLI version: the same
+      # .terraform-version that tenv/tfenv reads locally. setup-terraform does
+      # not read it natively, so surface it as a step output.
+      - id: tfver
+        run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: ${{ steps.tfver.outputs.version }}
+          # The wrapper rewrites stdout/exit codes and confuses the hooks.
+          terraform_wrapper: false
+      # Single source of truth for the Packer CLI version, same idiom as
+      # tfver above: build/ami/build.sh's PACKER_VERSION is what CodeBuild
+      # actually installs and runs.
+      - id: packerver
+        run: echo "version=$(sed -n 's/^readonly PACKER_VERSION="\(.*\)"$/\1/p' build/ami/build.sh)" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3
+        with:
+          version: ${{ steps.packerver.outputs.version }}
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6
+        with:
+          tflint_version: v0.64.0
+      # Plugin cache keyed on the pinned ruleset version; on a hit the init
+      # below verifies and skips the download (and its GitHub API call).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.tflint.d/plugins
+          key: tflint-${{ hashFiles('terraform/.tflint.hcl') }}
+          restore-keys: |
+            tflint-
+      # Provider cache for every `terraform init` below (validate hook and the
+      # validate-all-roots loop); terraform requires the directory to exist.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: terraform-plugins-${{ hashFiles('terraform/roots/*/.terraform.lock.hcl') }}
+      - run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+      # Install the AWS ruleset pinned in terraform/.tflint.hcl so the
+      # terraform_tflint hook finds it. GITHUB_TOKEN avoids the unauthenticated
+      # GitHub API rate limit when fetching the plugin release.
+      - name: tflint init
+        run: tflint --init --config "$GITHUB_WORKSPACE/terraform/.tflint.hcl"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+      # The terraform_validate hook excludes modules that declare
+      # configuration_aliases (edge, storage), which cannot validate standalone.
+      # Validate every root instead: each root is a caller that supplies those
+      # aliases, so the excluded modules are checked in context, and looping over
+      # terraform/roots/*/ picks up new roots automatically. -backend=false keeps
+      # it credential-free like the rest of this job. This does NOT run in the
+      # local pre-commit hook (which is per-changed-dir), so a commit touching
+      # only an excluded module relies on this step for validate coverage.
+      - name: validate all roots
+        run: |
+          for root in terraform/roots/*/; do
+            terraform -chdir="$root" init -backend=false -input=false
+            terraform -chdir="$root" validate
+          done
+      # Every provider block in every root's lock file must carry three
+      # h1: hashes (darwin_arm64, darwin_amd64, linux_amd64) -- that's what
+      # ./tf.sh <instance> lock records (see scripts/tf.sh's "lock" case).
+      # CI's own `terraform init` above only ever proves linux_amd64, so a
+      # lock rewrite that dropped the darwin platforms (e.g. an
+      # unreconciled Dependabot PR) would pass CI and only surface later as
+      # a checksum error on someone's Mac. Fix: re-run `./tf.sh <instance>
+      # lock` and commit the result.
+      - name: check lock file platform coverage
+        run: |
+          for lock in terraform/roots/*/.terraform.lock.hcl; do
+            providers=$(grep -c '^provider "' "$lock")
+            hashes=$(grep -c '^    "h1:' "$lock")
+            [ "$hashes" -eq $((providers * 3)) ] ||
+              { echo "::error file=$lock::expected 3 h1 hashes per provider ($providers providers), found $hashes -- re-run ./tf.sh <instance> lock"; exit 1; }
+          done
+      - name: packer fmt
+        run: packer fmt -check -recursive build/ami
+      - name: packer validate
+        run: packer validate -syntax-only build/ami

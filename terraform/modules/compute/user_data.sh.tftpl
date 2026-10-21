@@ -1,0 +1,230 @@
+#!/bin/sh
+set -eu
+
+readonly REGION="${region}"
+readonly CELERY_REGION="${celery_region}"
+readonly EIP_ALLOC="${eip_allocation_id}"
+readonly EBS_VOLUME_ID="${ebs_volume_id}"
+readonly GRAMPS_DATA_ROOT="/var/lib/gramps"
+readonly COMPOSE_DIR="/opt/gramps"
+readonly DEVICE="/dev/sdf"
+readonly INSTANCE_ENV="/etc/gramps/instance.env"
+readonly RIGHTSIZE_SCHEDULE="${rightsize_schedule}"
+readonly SSM_INSTANCE_RUNTIME_PARAM="${ssm_instance_runtime_param}"
+readonly SSM_FRONTEND_CONFIG_PARAM="${ssm_frontend_config_param}"
+readonly LAST_RIGHTSIZE_PARAM="${last_rightsize_param}"
+readonly LAST_HEALTH_WATCHDOG_PARAM="${last_health_watchdog_param}"
+readonly CLOUDFRONT_DISTRIBUTION_ID_PARAM="${cloudfront_distribution_id_param}"
+
+INSTANCE_ID="$(cat /var/lib/cloud/data/instance-id)"
+readonly INSTANCE_ID
+
+log() {
+  # Write to stderr (not stdout) so messages emitted from inside a command
+  # substitution still reach the console/cloud-init-output.log instead of
+  # being captured into the caller's variable.
+  echo "[user-data] $*" | tee -a /var/log/user-data.log >&2
+}
+
+attach_volume() {
+  log "Waiting for EBS volume $EBS_VOLUME_ID to become available..."
+  # The actual handoff point during an instance replacement: nothing else
+  # forces the outgoing instance to detach first. The CLI's default wait
+  # budget is the whole window before this script fails and the CodeDeploy
+  # BeforeInstall hook blocks forever waiting for boot glue that never lands.
+  aws ec2 wait volume-available \
+    --volume-ids "$EBS_VOLUME_ID" \
+    --region "$REGION"
+  log "Attaching EBS volume $EBS_VOLUME_ID..."
+  aws ec2 attach-volume \
+    --volume-id "$EBS_VOLUME_ID" \
+    --instance-id "$INSTANCE_ID" \
+    --device "$DEVICE" \
+    --region "$REGION"
+  aws ec2 wait volume-in-use \
+    --volume-ids "$EBS_VOLUME_ID" \
+    --region "$REGION"
+}
+
+# The AWS-side volume-in-use state does not imply the guest has enumerated the
+# device, and on Nitro the namespace is not guaranteed to be nvme1n1. Match the
+# NVMe controller serial (the volume ID with dashes stripped) to find ours.
+# Echoes the device path; returns nonzero when it has not appeared yet.
+find_block_device() {
+  local serial_target ctrl dev
+  serial_target="$(echo "$EBS_VOLUME_ID" | tr -d '-')"
+  for ctrl in /sys/class/nvme/nvme*; do
+    [ -r "$ctrl/serial" ] || continue
+    if [ "$(tr -d ' ' <"$ctrl/serial")" = "$serial_target" ]; then
+      dev="/dev/$(basename "$ctrl")n1"
+      if [ -b "$dev" ]; then
+        echo "$dev"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+wait_for_block_device() {
+  local dev i
+  i=0
+  while [ "$i" -lt 60 ]; do
+    if dev="$(find_block_device)"; then
+      echo "$dev"
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  log "ERROR: block device for $EBS_VOLUME_ID did not appear within 60s"
+  return 1
+}
+
+# First boot on a fresh volume only; a restored or reattached volume already
+# carries its filesystem and is left alone.
+format_if_needed() {
+  if ! blkid "$1" >/dev/null 2>&1; then
+    log "Formatting ext4 on $1..."
+    mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0 "$1"
+  fi
+}
+
+# By UUID, not device path: the NVMe namespace number is not stable across
+# boots. nofail keeps a missing volume from wedging the boot into emergency
+# mode -- the CodeDeploy BeforeInstall hook is what refuses to deploy onto an
+# unmounted root.
+ensure_mounted() {
+  local uuid
+  mkdir -p "$GRAMPS_DATA_ROOT"
+  uuid="$(blkid -s UUID -o value "$1")"
+  if ! grep -q "$uuid" /etc/fstab; then
+    echo "UUID=$uuid $GRAMPS_DATA_ROOT ext4 defaults,nofail 0 2" >>/etc/fstab
+  fi
+  mount -a
+}
+
+create_data_dirs() {
+  mkdir -p \
+    "$GRAMPS_DATA_ROOT/db" \
+    "$GRAMPS_DATA_ROOT/users" \
+    "$GRAMPS_DATA_ROOT/secret" \
+    "$GRAMPS_DATA_ROOT/index" \
+    "$GRAMPS_DATA_ROOT/cache" \
+    "$GRAMPS_DATA_ROOT/backups" \
+    "$GRAMPS_DATA_ROOT/tmp"
+}
+
+mount_data_volume() {
+  local block_dev
+  block_dev="$(wait_for_block_device)"
+  log "Block device: $block_dev"
+  format_if_needed "$block_dev"
+  ensure_mounted "$block_dev"
+  create_data_dirs
+  log "EBS mounted at $GRAMPS_DATA_ROOT"
+}
+
+associate_eip() {
+  log "Associating EIP $EIP_ALLOC with $INSTANCE_ID..."
+  aws ec2 associate-address \
+    --allocation-id "$EIP_ALLOC" \
+    --instance-id "$INSTANCE_ID" \
+    --allow-reassociation \
+    --region "$REGION"
+}
+
+setup_swap() {
+  if [ ! -f /swapfile ]; then
+    log "Creating 2G swapfile..."
+    fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+    chmod 600 /swapfile
+    mkswap /swapfile
+    echo "/swapfile none swap sw 0 0" >>/etc/fstab
+  fi
+  swapon -a || true
+}
+
+# The AMI bakes gramps-rightsize-watchdog.timer with a default hour; the env's
+# tfvars (rightsize_schedule) choose the real one via a drop-in, which keeps
+# the unit file itself env-agnostic. Two guards, both deliberate soft-fails: an
+# AMI predating the timer has nothing to override, and an invalid expression
+# must not brick the boot -- serving the site outranks the rightsize hour, and
+# the timer retries on the AMI default. An empty schedule (rightsize_schedule =
+# null) turns the timer off instead.
+configure_rightsize_timer() {
+  local unit dropin
+  unit="gramps-rightsize-watchdog.timer"
+  dropin="/etc/systemd/system/$unit.d/schedule.conf"
+
+  if [ -z "$RIGHTSIZE_SCHEDULE" ]; then
+    if systemctl disable --now "$unit" >/dev/null 2>&1; then
+      log "rightsize disabled; stopped $unit"
+    else
+      log "rightsize disabled; no $unit to stop"
+    fi
+    return 0
+  fi
+
+  if [ ! -f "/etc/systemd/system/$unit" ]; then
+    log "no $unit on this AMI; skipping schedule override"
+    return 0
+  fi
+  if ! systemd-analyze calendar "$RIGHTSIZE_SCHEDULE" >/dev/null 2>&1; then
+    log "ERROR: invalid rightsize_schedule '$RIGHTSIZE_SCHEDULE'; keeping the AMI default"
+    return 0
+  fi
+
+  log "Scheduling rightsize timer: $RIGHTSIZE_SCHEDULE"
+  mkdir -p "$(dirname "$dropin")"
+  # The empty OnCalendar clears the AMI default before setting the override.
+  cat >"$dropin" <<CONF
+# Written by user-data from rightsize_schedule in terraform.tfvars.
+[Timer]
+OnCalendar=
+OnCalendar=$RIGHTSIZE_SCHEDULE
+CONF
+  systemctl daemon-reload
+  systemctl restart "$unit"
+}
+
+write_instance_env() {
+  # Hands the CodeDeploy hooks their environment-specific wiring. The revision
+  # bundle stays env-agnostic; everything env-specific is resolved here.
+  # Runs LAST, so the file's existence is also the "boot glue done" signal the
+  # BeforeInstall hook blocks on. Written via rename so the hook can never read
+  # a partial file, and kept in /etc so it survives reboots (where user-data
+  # does not re-run but fstab/EIP state persists).
+  log "Writing $INSTANCE_ENV..."
+  mkdir -p "$(dirname "$INSTANCE_ENV")"
+  cat >"$INSTANCE_ENV.tmp" <<ENV
+REGION=$REGION
+CELERY_REGION=$CELERY_REGION
+EIP_ALLOC=$EIP_ALLOC
+EBS_VOLUME_ID=$EBS_VOLUME_ID
+SSM_RUNTIME_PARAM=${ssm_runtime_param}
+SSM_FLASK_SECRET_PARAM=${ssm_flask_secret_path}
+SSM_SMTP_PASSWORD_PARAM=${ssm_smtp_password_path}
+SSM_FRONTEND_CONFIG_PARAM=$SSM_FRONTEND_CONFIG_PARAM
+SSM_INSTANCE_RUNTIME_PARAM=$SSM_INSTANCE_RUNTIME_PARAM
+GRAMPS_DATA_ROOT=$GRAMPS_DATA_ROOT
+COMPOSE_DIR=$COMPOSE_DIR
+LAST_RIGHTSIZE_PARAM=$LAST_RIGHTSIZE_PARAM
+LAST_HEALTH_WATCHDOG_PARAM=$LAST_HEALTH_WATCHDOG_PARAM
+CLOUDFRONT_DISTRIBUTION_ID_PARAM=$CLOUDFRONT_DISTRIBUTION_ID_PARAM
+ENV
+  mv "$INSTANCE_ENV.tmp" "$INSTANCE_ENV"
+}
+
+main() {
+  log "=== user-data start: instance $INSTANCE_ID ==="
+  attach_volume
+  mount_data_volume
+  setup_swap
+  associate_eip
+  configure_rightsize_timer
+  write_instance_env
+  log "=== user-data complete ==="
+}
+
+main "$@"
