@@ -1,0 +1,9 @@
+variable "primary_domain" {
+  description = "Apex domain the site is served from (string). Point its registrar at the name servers this stack outputs."
+  type        = string
+}
+
+variable "alert_email" {
+  description = "Address for outage, cost, and audit alerts (string)."
+  type        = string
+}
