@@ -21,7 +21,7 @@ repos:
       - id: shellcheck
         # -x follows sourced files (scripts/common.sh) so vars defined there
         # aren't flagged unused/undefined; the shebangs are #!/bin/sh, so
-        # shellcheck enforces POSIX automatically.
+        # shellcheck enforces POSIX automatically, including `local` (SC3043).
         args: [-x]
 
   - repo: https://github.com/rhysd/actionlint
@@ -61,6 +61,23 @@ repos:
 
   - repo: local
     hooks:
+      - id: hygiene
+        name: hygiene
+        entry: sh scripts/hygiene.sh
+        language: system
+        exclude: ^(LICENSE|build/web/package-lock\.json)$
+      - id: script-tests
+        name: script tests
+        entry: sh scripts/tests/run.sh
+        language: system
+        pass_filenames: false
+        files: ^(scripts/|build/.*\.sh$)
+      - id: keel-drift
+        name: vendored keel scripts match their tag
+        entry: sh scripts/check-keel-drift.sh
+        language: system
+        pass_filenames: false
+        files: ^scripts/keel/
       - id: docs
         name: README module reference is current
         entry: sh scripts/docs.sh --check
