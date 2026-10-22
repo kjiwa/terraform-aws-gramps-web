@@ -22,19 +22,28 @@ Required inputs are `primary_domain` and `alert_email`. Everything else has a de
    REGION=us-east-1 build/ami/build.sh
    ```
 
-2. Apply the example.
+   Use the region the site will run in; the example's `region` variable must match.
+
+2. Create the GitHub connection.
 
    ```sh
    cd examples/minimal
    terraform init
+   terraform apply -target=module.gramps_web.aws_codeconnections_connection.github \
+     -var primary_domain=example.org -var alert_email=you@example.org
+   ```
+
+3. Approve it: in the console, open Developer Tools, Settings, Connections, update the pending `gramps-web` connection, and install the GitHub app on `kjiwa/terraform-aws-gramps-web` (or the repository `repo_url` names).
+
+4. Apply the rest.
+
+   ```sh
    terraform apply -var primary_domain=example.org -var alert_email=you@example.org
    ```
 
-   The apply creates the hosted zone, then waits on certificate validation. Set the `name_servers` output at your registrar while it waits; re-running an apply that timed out is safe. Confirm the SNS subscription emails.
+   The apply creates the hosted zone, then waits on certificate validation. Read the name servers with `terraform output -json name_servers` and set them at your registrar while it waits; re-running an apply that timed out is safe. Confirm the SNS subscription emails.
 
-3. Approve the GitHub connection: the `codeconnections_arn` output starts pending. In the console, open Developer Tools, Settings, Connections, update it, and install the GitHub app on the repository.
-
-4. Build and ship the app and the error pages. `--root` is the directory that instantiates the module.
+5. Build and ship the app and the error pages. `--root` is the directory that instantiates the module.
 
    ```sh
    scripts/deploy.sh --root examples/minimal gramps
