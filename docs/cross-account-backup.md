@@ -12,11 +12,13 @@ lock the destination vault until step 6 proves the copy pipeline end to end —
 locking a vault whose backups you have not verified can leave you paying to
 store recovery points you cannot delete.
 
-Two placeholders recur throughout: `<primary_region>` is `primary_region` in
-the workload env's tfvars; `<backup_region>` is `backup.region` in the same
-file (and `region` in the backup account's own tfvars, which must match). See
-[restore.md](restore.md) for the full placeholder table and why the design
-never assumes a specific region for either.
+Placeholders recur throughout: `<root>` is the Terraform root that
+instantiates this module in the workload account, and `<backup-root>` the one
+for the backup account. `<region>` is the workload module's region and
+`<backup_region>` is `backup.region` (the region of the backup account's own
+provider, which must match). See [restore.md](restore.md) for the placeholder
+table and why the design never assumes a specific region for either. The
+scripts take the workload root as `--root <root>`, or `GRAMPS_WEB_ROOT`.
 
 ## Why bother
 
@@ -40,7 +42,9 @@ recovery points the same as plain snapshots.
 
 ## Prerequisites
 
-- `aws`, `terraform`; run from the repo root.
+- `aws`, `terraform`, `jq`.
+- A workload root that exports the module as an output
+  (`output "gramps_web" { value = module.gramps_web }`), which the scripts read.
 - Admin credentials for **three** accounts: the Organizations management
   account, the workload account, and the backup account.
 - The backup account must already exist and be in the **same organization** as
@@ -97,7 +101,7 @@ them the first two are theatre — an attacker who can unlock the vault or set
 retention to a day does not need `DeleteRecoveryPoint`. This is also what makes
 the vault's *governance*-mode lock as strong as compliance mode without the
 irreversibility: the lock cannot be removed from inside the backup account at
-all, because the SCP denies it to every principal there, this root's admin
+all, because the SCP denies it to every principal there, this account's admin
 included. Reversing it takes two accounts.
 
 Also confirm a **`DenyLeaveOrganization`** SCP covers the backup account — AWS
@@ -110,9 +114,9 @@ AWS_PROFILE=<mgmt> aws organizations list-targets-for-policy --policy-id <scp-id
 ```
 
 **Do not deny `s3:PutLifecycleConfiguration` on that OU.** It looks like it
-belongs and it breaks bootstrap and `restore.sh`: the backup account's Terraform
-state bucket has a lifecycle config bootstrap manages, and the restore scratch
-bucket empties itself by one. It guards
+belongs and it breaks the state bucket module and `restore.sh`: the backup
+account's Terraform state bucket has a lifecycle config keel's `state-bucket`
+module manages, and the restore scratch bucket empties itself by one. It guards
 nothing — AWS Backup keeps S3 recovery points in AWS-managed vault storage, so no
 backup data lives in an S3 bucket there at all. If you want the S3 denies anyway,
 scope them with `NotResource` on the state and scratch buckets.
@@ -128,7 +132,7 @@ The backup account needs its own Terraform state, in its own account —
 pointing it at the workload account's bucket would hand the backup account's
 role the workload account's state *and* make the backup account's state
 deletable from the workload account, inverting the isolation.
-`terraform/roots/bootstrap` is per-account for exactly this reason.
+keel's `state-bucket` module runs once per account for exactly this reason.
 
 **If the Backup OU's SCP denies `s3:PutLifecycleConfiguration`, this step fails**
 with AccessDenied on `aws_s3_bucket_lifecycle_configuration.tfstate_web`, and it
@@ -139,61 +143,87 @@ AWS-managed vault storage, so **the backup account holds no backup data in S3 at
 all**, and the only buckets in it are the state bucket and `restore.sh`'s scratch bucket. Either drop the action or
 scope the statement with `NotResource` on the state and scratch buckets.
 
-Create the bucket by hand (chicken-and-egg: bootstrap manages the bucket its own
-state lives in), then import and apply. Same flow as README step 2, pointed at
-this account's config:
+In `<backup-root>`, a root with its own AWS provider for the backup account
+(pin `allowed_account_ids` to it, so the wrong `AWS_PROFILE` fails instead of
+building this account's bucket somewhere else):
+
+```hcl
+module "state" {
+  source      = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/state-bucket?ref=v0.1.0"
+  bucket_name = "<state-bucket>"
+}
+```
+
+Create the bucket by hand (chicken-and-egg: the module manages the bucket its
+own state lives in), point a partial `backend "s3" {}` at it, then import and
+apply:
 
 ```sh
 export AWS_PROFILE=<backup-account-admin>
 aws s3api create-bucket --bucket <state-bucket> --region <backup_region> \
   --create-bucket-configuration LocationConstraint=<backup_region>
 
-scripts/tf.sh bootstrap/<account> init
-scripts/tf.sh bootstrap/<account> import aws_s3_bucket.tfstate_web <state-bucket>
-scripts/tf.sh bootstrap/<account> apply
+terraform -chdir=<backup-root> init -backend-config=backend.hcl
+terraform -chdir=<backup-root> import module.state.aws_s3_bucket.tfstate_web <state-bucket>
+terraform -chdir=<backup-root> apply
 ```
 
-No `-reconfigure` when switching between accounts: each instance keeps its own
-`.terraform` data dir under its config directory, so the backend binding travels
-with the config rather than with whoever init'd last. The account each config is
-meant for is also declared in its `terraform.tfvars` and enforced by
-`allowed_account_ids`, so the wrong `AWS_PROFILE` fails instead of building this
-account's bucket somewhere else.
+Leave `encrypt` and `kms_key_id` out of the backend configuration: they would
+override the bucket's default encryption. Keep one `TF_DATA_DIR` per root, or
+pass `-reconfigure` when switching between the workload and backup roots, so
+the backend binding does not follow whoever ran `init` last.
 
 ## 3. Backup account: vault + key
 
-```sh
-export AWS_PROFILE=<backup-account-admin>
-scripts/tf.sh backup-account/<instance> init
-scripts/tf.sh backup-account/<instance> apply
+Add keel's `backup-vault-account` module to `<backup-root>`:
+
+```hcl
+module "backup_vault" {
+  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/backup-vault-account?ref=v0.1.0"
+
+  name_prefix                   = "gramps-web"
+  vault_name                    = "gramps-web-backup-replica"
+  source_account_id             = "<workload-account-id>"
+  s3_recovery_enabled           = true
+  vault_reader_source_role_name = "gramps-web-status"
+}
 ```
 
-Creates the vault, its CMK (mandatory — a cross-account destination cannot be
+```sh
+export AWS_PROFILE=<backup-account-admin>
+terraform -chdir=<backup-root> apply
+```
+
+`name_prefix` must be `gramps-web`: `scripts/restore.sh` and the status page
+address the restore and vault-reader roles by that name. Creates the vault, its CMK (mandatory — a cross-account destination cannot be
 the default vault, because the AWS-managed `aws/backup` key has an immutable
 policy that cannot be shared), and the vault policy granting the workload
 account `backup:CopyIntoBackupVault` and nothing else.
 
-**Leave `vault_lock.mode = "none"` initially.** Locking a vault whose copy pipeline
+**Leave `vault_lock.mode` at `"none"` (the default) initially.** Locking a vault whose copy pipeline
 has not been proven can leave you paying to store recovery points you cannot
 delete — and with the Backup OU's SCP in place, "cannot delete" is close to
 literal (see step 6). Step 6 turns it on, after the pipeline works.
 
-`vault_name` here and `backup.dest_vault_name` in the workload env's tfvars are
+`vault_name` here and `backup.dest_vault_name` on the workload module are
 a contract: the workload stack *constructs* the destination vault's ARN from
 account + region + name rather than having one pasted in. A mismatch is a
 runtime copy-job failure, not a plan error.
 
 ## 4. Workload account: set the mode and apply
 
-Set `backup.mode` in the env's tfvars:
+Set `backup` on the module in `<root>`:
 
 ```hcl
-backup = {
-  mode                  = "cross_account"
-  account_id            = "<backup-account-id>"
-  region                = "<backup_region>"
-  retention_days        = 7
-  remote_retention_days = 30
+module "gramps_web" {
+  # ...
+  backup = {
+    mode                  = "cross_account"
+    account_id            = "<backup-account-id>"
+    region                = "<backup_region>"
+    retention_days        = 7
+    remote_retention_days = 30
+  }
 }
 ```
 
@@ -208,8 +238,8 @@ On a **fresh deployment** — no volume yet, or one that has never carried this
 mode — this is the whole step. Apply normally:
 
 ```sh
-scripts/tf.sh <env> apply
-scripts/tf.sh <env> output -raw backup_copy_vault_arn
+terraform -chdir=<root> apply
+terraform -chdir=<root> output -json gramps_web | jq -r .backup_copy_vault_arn
 ```
 
 `modules/storage` creates the data volume directly on the CMK `cross_account`
@@ -235,7 +265,7 @@ across:
 
 ```sh
 export AWS_PROFILE=<workload-admin>
-scripts/backup.sh run "seed cross-account pipeline"
+scripts/backup.sh --root <root> run "seed cross-account pipeline"
 ```
 
 Use the workload account's **admin** profile: reading Terraform outputs decrypts
@@ -260,7 +290,7 @@ unpleasant:
   per-job setup, not by data, and the percentage jumps near the end rather than
   climbing. That is not a hang, and `run` says so while it waits.
 
-Check it landed with `scripts/backup.sh status`, which shows recent backup jobs,
+Check it landed with `scripts/backup.sh --root <root> status`, which shows recent backup jobs,
 recent copy jobs, and what is in the local vault. It cannot show the far side —
 listing the destination vault needs the destination account's credentials, which
 is the isolation working as designed; step 6's drill does that.
@@ -283,7 +313,7 @@ until the copy job runs.
 ```sh
 export AWS_PROFILE=<workload-admin>
 export BACKUP_PROFILE=<backup-account-admin>
-scripts/restore.sh drill
+scripts/restore.sh --root <root> drill
 ```
 
 The drill seeds a fresh recovery point for every resource type (the data
@@ -296,19 +326,17 @@ to run against an already-locked vault, which is why this has to happen before
 locking rather than after. See "Restore drill" in [restore.md](restore.md) for
 what each phase proves.
 
-**Run `scripts/restore.sh drill-cleanup` before locking the vault — and before
+**Run `scripts/restore.sh --root <root> drill-cleanup` before locking the vault — and before
 attaching the protective SCPs from "Protecting the backup account" above.** The
 drill creates real recovery points and scratch resources, and `DeleteRecoveryPoint`'s
 SCP deny blocks removing them regardless of whether the vault itself is locked
 yet. `drill` prints this reminder and a manifest path when it passes;
 `drill-cleanup` reads that manifest and removes each artifact, retrying only
 what is still outstanding if you run it again. Confirm clean with
-`scripts/restore.sh list`.
+`scripts/restore.sh --root <root> list`.
 
-Once cleanup confirms clean, set `vault_lock = { mode = "governance" }` in the
-backup account instance's tfvars
-(`terraform/config/backup-account/<instance>/terraform.tfvars`) and apply it
-in the backup account. The status page's backups panel reads the lock state
+Once cleanup confirms clean, set `vault_lock = { mode = "governance" }` on the
+`backup_vault` module in `<backup-root>` and apply it in the backup account. The status page's backups panel reads the lock state
 live, so it reflects the change on its own -- no workload-side apply needed.
 
 Governance, not compliance — and with the Backup OU's SCP that is a stronger
@@ -316,7 +344,7 @@ control than the AWS docs make it sound. The docs describe governance as
 unlockable by a sufficiently privileged principal in the vault's own account,
 which would make it thin protection against exactly the attacker you care about.
 `ProtectBackups` denies `backup:DeleteBackupVaultLockConfiguration` to *every*
-principal in the OU, this root's admin included, so the lock cannot be removed
+principal in the OU, this account's admin included, so the lock cannot be removed
 from inside this account at all. Reversing it takes two accounts: detach the SCP
 from the management account, then delete the lock here.
 
@@ -345,7 +373,7 @@ decrypt, so such a volume cannot be backed up cross-account by any mechanism.
 There is no re-key-in-place API; the volume must be replaced, and it is
 `prevent_destroy`, so this cannot be an ordinary apply.
 
-Set `backup.mode = "cross_account"` in tfvars first (step 4 above), but **do not
+Set `backup.mode = "cross_account"` on the module first (step 4 above), but **do not
 apply yet** — the key only exists in `cross_account` mode (it is dead weight in
 the others), and applying with the mode set but the volume not yet re-keyed is
 exactly the sequencing this needs. `plan` errors until the volume is re-keyed —
@@ -353,37 +381,37 @@ that is the design working, not a bug:
 
 ```
 Error: Instance cannot be destroyed
-  Resource module.storage.aws_ebs_volume.this has lifecycle.prevent_destroy
+  Resource module.gramps_web.module.storage.aws_ebs_volume.this has lifecycle.prevent_destroy
 ```
 
 Create the key, and nothing else:
 
 ```sh
 export AWS_PROFILE=<workload-admin>
-scripts/tf.sh <env> apply -target=module.storage.aws_kms_key.data
+terraform -chdir=<root> apply -target=module.gramps_web.module.storage.aws_kms_key.data
 ```
 
 Then snapshot, re-encrypt, restore, adopt. `rekey` defaults to the key the stack
 declares; pass the ARN explicitly if the targeted apply left the output unset:
 
 ```sh
-scripts/azmove.sh rekey
-# or: scripts/azmove.sh rekey "$(aws kms describe-key --key-id alias/gramps-data \
+scripts/azmove.sh --root <root> rekey
+# or: scripts/azmove.sh --root <root> rekey "$(aws kms describe-key --key-id alias/gramps-data \
 #       --query KeyMetadata.Arn --output text)"
 # -> prints the new volume id
-scripts/azmove.sh adopt <new-vol-id> <same-az>
+scripts/azmove.sh --root <root> adopt <new-vol-id> <same-az>
 ```
 
 **Review the plan by hand. Do not skip this.**
 
 ```sh
-scripts/tf.sh <env> plan
+terraform -chdir=<root> plan
 ```
 
 The data volume must now be a **no-op** — that is the whole point of the adopt.
 If it still shows destroy or replace, stop: the adopt did not take, and applying
 would try to delete your only copy. `azmove.sh adopt` wrote a state backup to
-`scripts/azmove-state-<ts>.json`; `terraform state push -force` it back (`-force`: the adopt's
+`azmove-state-<ts>.json` in the current directory; `terraform state push -force` it back (`-force`: the adopt's
 `state rm` raised the serial, so the backup's is older).
 
 Everything else in that plan should be the cross-account wiring itself: the
@@ -399,8 +427,8 @@ Then apply and bring the site up. Apply must precede scale-up: the
 launching instance is denied the attach.
 
 ```sh
-scripts/tf.sh <env> apply
-scripts/azmove.sh finish https://<your-domain>/
+terraform -chdir=<root> apply
+scripts/azmove.sh --root <root> finish https://<your-domain>/
 ```
 
 The old volume is untouched and is your rollback. Do not delete it yet ([Clean
@@ -416,7 +444,7 @@ silently destroying the off-site copy (and scheduling its key for deletion):
 
 ```
 Error: Instance cannot be destroyed
-  Resource module.storage.aws_backup_vault.replica has lifecycle.prevent_destroy
+  Resource module.gramps_web.module.storage.aws_backup_vault.replica has lifecycle.prevent_destroy
 ```
 
 Two ways through:
@@ -432,8 +460,8 @@ alias.
 
 **(b) Simple**, if a window with no off-site copy is acceptable: delete the
 replica vault's recovery points, remove the two `prevent_destroy` blocks in
-`modules/storage/backup.tf`, then let the next apply destroy the vault and key
-outright.
+`modules/storage/backup.tf` (this needs a fork or a local checkout of the
+module), then let the next apply destroy the vault and key outright.
 
 Either way, confirm you are touching the *replica* key: the state bucket's CMK
 also lives in the backup region and must not be scheduled for deletion.
@@ -449,7 +477,7 @@ also lives in the backup region and must not be scheduled for deletion.
 - **Before re-keying's apply**: nothing has changed. `terraform state push -force`
   the state backup `azmove.sh adopt` wrote, then delete the restored volume.
 - **After re-keying, before decommissioning the replica vault**: revert the
-  tfvars `backup` block to its previous mode; adopt the old volume back if you
+  `backup` setting to its previous mode; adopt the old volume back if you
   also want to undo the re-key. Migrants who used the continuity-preserving
   option can `terraform import` the replica vault and key back into state.
 - **After decommissioning the replica vault**: recovery is from the backup
