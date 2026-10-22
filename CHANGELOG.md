@@ -4,6 +4,22 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Fixed
+
+- The data volume and the Elastic IP carry `Project = "gramps-web"` explicitly. The instance IAM policy conditions on that tag, so a root without provider `default_tags` no longer hangs at boot.
+- `scripts/hygiene.sh` skips binary files instead of printing a `sed` error on them.
+
+### Changed
+
+- The `status` variable documents the Lambda concurrency quota the status page needs: at least 110.
+- The instance-profile role, its SSM attachment, and its inline policy no longer carry `count`; `moved` blocks carry existing state over, so the plan shows moves and no changes.
+
+### Removed
+
+- The unused `instance_role_arn` input of `modules/compute`.
+- The unused `scripts/keel/tf.sh`.
+- Unused outputs of the network, app-pipeline, and web-build modules.
+
 ## [0.9.2] - 2026-10-21
 
 ### Fixed
