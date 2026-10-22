@@ -50,6 +50,9 @@ main() {
   printf '%s\n' "/$(printf 'Users')/someone/x" >"$WORK/b.txt"
   assert_status "any dirty file fails" 1 sh "$HYGIENE" "$WORK/a.txt" "$WORK/b.txt"
   assert_status "missing file is skipped" 0 sh "$HYGIENE" "$WORK/none.txt"
+  printf '\000\377 %s%s\n' 9876 54321098 >"$WORK/image.png"
+  assert_status "binary file is skipped" 0 sh "$HYGIENE" "$WORK/image.png"
+  assert_eq "binary file prints nothing" "" "$(sh "$HYGIENE" "$WORK/image.png" 2>&1 || true)"
   finish
 }
 
