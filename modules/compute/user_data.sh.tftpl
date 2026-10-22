@@ -179,7 +179,7 @@ configure_rightsize_timer() {
   mkdir -p "$(dirname "$dropin")"
   # The empty OnCalendar clears the AMI default before setting the override.
   cat >"$dropin" <<CONF
-# Written by user-data from rightsize_schedule in terraform.tfvars.
+# Written by user-data from var.rightsize.schedule.
 [Timer]
 OnCalendar=
 OnCalendar=$RIGHTSIZE_SCHEDULE

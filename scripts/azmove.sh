@@ -438,7 +438,7 @@ verify_new_volume() {
 backup_state() {
   _backup_state_backup="azmove-state-$(date -u +%Y%m%d%H%M%S).json"
   log "Backing up Terraform state to $_backup_state_backup..."
-  tf state pull >"$_backup_state_backup"
+  (umask 077 && tf state pull >"$_backup_state_backup")
   echo "$_backup_state_backup"
 }
 
@@ -536,6 +536,7 @@ cmd_finish() {
 
 main() {
   require aws terraform jq curl
+  ! wants_usage "$@" || usage
   select_root "$@"
   shift "$ROOT_SHIFT"
   init_root

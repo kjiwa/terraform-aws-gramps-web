@@ -163,6 +163,17 @@ test_scripts_require_root() {
   done
 }
 
+test_usage_needs_no_root() {
+  for _s in azmove.sh backup.sh restore.sh; do
+    assert_eq "$_s without arguments prints usage" "0" \
+      "$(script_output $_s | grep -c 'no root directory')"
+    assert_eq "$_s --help prints usage" "0" \
+      "$(script_output $_s --help | grep -c 'no root directory')"
+    assert_eq "$_s with a root and no subcommand prints usage" "0" \
+      "$(script_output $_s --root "$WORK/nonexistent" | grep -c 'root directory not found')"
+  done
+}
+
 test_script_refusals() {
   write_outputs local gramps-web-backup
   assert_eq "drill refuses a local-mode stack" "1" \
@@ -172,12 +183,17 @@ test_script_refusals() {
     "$(script_output backup.sh --root "$WORK/root" status | grep -c 'no backup vault')"
 }
 
-test_select_root
-test_init_root
-test_tf_output
-test_account
-test_backup
-test_state_address
-test_scripts_require_root
-test_script_refusals
-finish
+main() {
+  test_select_root
+  test_init_root
+  test_tf_output
+  test_account
+  test_backup
+  test_state_address
+  test_scripts_require_root
+  test_usage_needs_no_root
+  test_script_refusals
+  finish
+}
+
+main "$@"

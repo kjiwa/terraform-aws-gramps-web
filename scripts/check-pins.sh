@@ -91,10 +91,10 @@ check_tflint_ruleset_aws() {
 # grampsweb release, which tags gramps-project/gramps-web (the image tag is the
 # same version string).
 check_gramps_web() {
-  current="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*optional(string, "\([0-9.]*\)")$/\1/p' \
+  _check_gramps_web_current="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*optional(string, "\([0-9.]*\)")$/\1/p' \
     "$REPO_ROOT/variables.tf" | head -n 1)"
-  latest="$(latest_gh_release gramps-project/gramps-web)"
-  report "Gramps Web (variables.tf gramps.version)" "$current" "$latest"
+  _check_gramps_web_latest="$(latest_gh_release gramps-project/gramps-web)"
+  report "Gramps Web (variables.tf gramps.version)" "$_check_gramps_web_current" "$_check_gramps_web_latest"
 }
 
 check_gitleaks() {

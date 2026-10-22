@@ -32,6 +32,16 @@ select_root() {
   [ -d "$ROOT_DIR" ] || die "root directory not found: $ROOT_DIR"
 }
 
+# wants_usage ARGS...: true when, past a leading `--root DIR`, there is no
+# subcommand or it is -h or --help.
+wants_usage() {
+  [ "${1:-}" != "--root" ] || shift 2 2>/dev/null || true
+  case "${1:-}" in
+  '' | -h | --help) return 0 ;;
+  esac
+  return 1
+}
+
 # init_region ARGS...: sets REGION (and ROOT_SHIFT) from $AWS_REGION when it is
 # set and no --root is given, else from the root as init_root does. For scripts
 # that also run where there is no Terraform root (CodeBuild).

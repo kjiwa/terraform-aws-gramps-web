@@ -215,7 +215,7 @@ variable "repo_url" {
 }
 
 variable "source_branch" {
-  description = "Branch of repo_url the builds pull (string)."
+  description = "Branch or tag of repo_url the builds pull (string). Builds run its build/ and scripts/ with deploy permissions, so pin this to the release tag matching the module ref."
   type        = string
   default     = "main"
 }

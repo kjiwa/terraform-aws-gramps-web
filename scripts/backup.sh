@@ -389,6 +389,7 @@ cmd_status() {
 
 main() {
   require aws terraform jq
+  ! wants_usage "$@" || usage
   select_root "$@"
   shift "$ROOT_SHIFT"
   init_root

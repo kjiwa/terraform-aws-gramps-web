@@ -26,10 +26,13 @@ assert_none() {
   assert_eq "$1" "" "$_assert_hits"
 }
 
-assert_none "no tfvars or config tree" 'terraform/(config|roots)|TFVARS|tfvars|CONFIG_DIR|env_paths|config_paths'
-assert_none "no local keyword" '^[[:space:]]*local[[:space:]]'
-assert_none "no personal identifiers" 'shivji|kjiwa[^/]|kjiwa$'
+main() {
+  assert_none "no tfvars or config tree" 'terraform/(config|roots)|TFVARS|tfvars|CONFIG_DIR|env_paths|config_paths'
+  assert_none "no local keyword" '^[[:space:]]*local[[:space:]]'
+  assert_none "no personal identifiers" 'shivji|kjiwa[^/]|kjiwa$'
 
-assert_eq "no SC3043 exemption" "" "$(grep -n 'SC3043' "$REPO/.shellcheckrc" || true)"
+  assert_eq "no SC3043 exemption" "" "$(grep -n 'SC3043' "$REPO/.shellcheckrc" || true)"
+  finish
+}
 
-finish
+main "$@"

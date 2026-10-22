@@ -87,8 +87,9 @@ locals {
 
   # gramps-web-vault-reader is a fixed name in the backup account (keel's
   # backup-vault-account module), so its ARN is constructed the same way the
-  # destination vault ARN is: a name contract, not cross-account remote state. Empty except under cross_account, matching
-  # when the status module actually needs to assume it.
+  # destination vault ARN is: a name contract, not cross-account remote state.
+  # Empty except under cross_account, matching when the status module actually
+  # needs to assume it.
   backup_dest_reader_role_arn = (
     var.backup.mode == "cross_account"
     ? "arn:aws:iam::${var.backup.account_id}:role/gramps-web-vault-reader"
