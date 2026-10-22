@@ -25,3 +25,9 @@ variable "source_branch" {
   type        = string
   default     = "main"
 }
+
+variable "audit_log_retention_days" {
+  description = "Days the audit trail is retained and Object-Locked (number). Lower it for a trial: the locked bucket cannot be emptied, so it blocks teardown until it expires."
+  type        = number
+  default     = 365
+}

@@ -149,6 +149,8 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
      -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-0.9
    ```
 
+   The first apply in a new account can fail while the Auto Scaling group launches its first instance ("Authentication Failure"); re-running the apply succeeded in testing. The status page at `/_status` is off by default: set `status = { enabled = true }` on the module after raising the account's Lambda concurrency quota (see the `status` input).
+
    The apply creates the hosted zone, then waits on certificate validation. Read the name servers with `terraform output -json name_servers` and set them at your registrar while it waits; re-running an apply that timed out is safe. Confirm the SNS subscription emails.
 
 6. Build and ship the app and the error pages. `--root` is the directory that instantiates the module.
@@ -163,7 +165,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 - CloudFront reaches the origin over plain HTTP: the origin security group admits the CloudFront origin-facing prefix list on port 80, and no shared-secret header is checked. Login traffic crosses the public internet unencrypted between CloudFront and the instance, and any CloudFront distribution can reach the origin's Elastic IP.
 - SES starts in the sandbox in a new account. Invite and reset emails reach only verified recipients until you request production access.
 - One deployment per account: resource names are fixed, and `env` namespaces only SSM parameters and CodeDeploy.
-- `prevent_destroy` on the data volume and media bucket makes `terraform destroy` stop by design. TEARDOWN: to be filled from the dry run.
+- `prevent_destroy` on the data volume and media bucket makes `terraform destroy` stop by design; [docs/teardown.md](docs/teardown.md) lists the steps. The audit trail bucket is Object-Locked for a year by default, which blocks teardown of a trial.
 
 ## Operating
 
