@@ -215,7 +215,7 @@ variable "repo_url" {
 }
 
 variable "source_branch" {
-  description = "Branch or tag of repo_url the builds pull (string). Builds run its build/ and scripts/ with deploy permissions, so pin this to the release tag matching the module ref."
+  description = "Branch of repo_url the builds pull (string). CodePipeline sources a branch, never a tag, so use the release-<major>.<minor> branch matching the module ref. Builds run its build/ and scripts/ with deploy permissions."
   type        = string
   default     = "main"
 }
