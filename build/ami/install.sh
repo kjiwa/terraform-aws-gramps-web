@@ -193,7 +193,7 @@ reset_ssm_agent() {
 scrub_build_keys() {
   log "Scrubbing the Packer build SSH key..."
   rm -f /root/.ssh/authorized_keys
-  rm -f /home/ec2-user/.ssh/authorized_keys
+  rm -f ~ec2-user/.ssh/authorized_keys
 }
 
 # cloud-init must run user-data fresh on first instance boot, and the logs
