@@ -1,0 +1,168 @@
+/* --primary and --accent resolve to theme.ts DEFAULT_PRIMARY/DEFAULT_SECONDARY
+   via --gw-default-* custom properties injected by gwFinalize
+   (vite/finalize.ts). */
+:root {
+  --primary: var(--gw-default-primary);
+  --accent: var(--gw-default-secondary);
+  --bg: #f5f4f3;
+  --card: #ffffff;
+  --cardbd: #e6e3e1;
+  --h: #1a1a1a;
+  --sub: #5f6368;
+  --foot: #9aa0a6;
+  --icbg: #efe7e4;
+  --ic: var(--primary);
+  --chipbg: #fbeeda;
+  --chipfg: #8a4b0b;
+  --bartext: #ffffff;
+}
+:root[data-theme='dark'] {
+  --bg: #121212;
+  --card: #1e1b1a;
+  --cardbd: #34302e;
+  --h: #f0eeed;
+  --sub: #a9a3a0;
+  --foot: #7d7672;
+  --icbg: #3a302c;
+  --ic: #c9a89a;
+  --chipbg: #3a2e16;
+  --chipfg: #e8b864;
+  --barbg: #231f1e;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+body {
+  font-family:
+    'Roboto',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  background: var(--bg);
+  color: var(--h);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+header {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  background: var(--primary);
+  color: var(--bartext);
+}
+:root[data-theme='dark'] header {
+  background: var(--barbg);
+}
+header .title {
+  font-size: 17px;
+  font-weight: 500;
+}
+main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+@media (max-width: 40rem) {
+  main {
+    align-items: flex-start;
+  }
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--cardbd);
+  border-radius: 12px;
+  padding: 32px 28px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+}
+.icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--icbg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+}
+.icon svg {
+  width: 36px;
+  height: 36px;
+  stroke: var(--ic);
+}
+h1 {
+  font-size: 22px;
+  font-weight: 500;
+  margin: 0 0 12px;
+  color: var(--h);
+}
+p.msg {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--sub);
+  margin: 0 0 20px;
+}
+p.msg:has(+ p.ctx) {
+  margin-bottom: 12px;
+}
+/* Two lines reserved from first paint so the line appearing never moves the card. */
+p.ctx {
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 3em;
+  color: var(--sub);
+  margin: 0 0 20px;
+}
+.chip {
+  display: inline-block;
+  font-size: 13px;
+  color: var(--chipfg);
+  background: var(--chipbg);
+  border-radius: 6px;
+  padding: 5px 12px;
+  margin-bottom: 22px;
+}
+button.retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 22px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+button.retry:hover {
+  filter: brightness(0.92);
+}
+p.cd {
+  font-size: 13px;
+  color: var(--foot);
+  margin: 18px 0 0;
+}
+footer {
+  text-align: center;
+  padding: 0 0 22px;
+  font-size: 12px;
+  color: var(--foot);
+  background: var(--bg);
+}
+footer a {
+  color: var(--sub);
+}

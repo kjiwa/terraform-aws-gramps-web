@@ -1,0 +1,16 @@
+# Watches IMDS for the Spot interruption notice and cleanly stops the gramps
+# containers before reclaim. Installed and enabled by build/ami/install.sh.
+# Starts at boot and polls immediately; the drain action itself tolerates
+# docker / instance.env not being ready yet (it just syncs).
+[Unit]
+Description=Drain gramps containers on EC2 Spot interruption notice
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+ExecStart=/usr/local/bin/gramps-spot-drain
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

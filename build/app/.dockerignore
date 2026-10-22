@@ -1,0 +1,8 @@
+# This directory is the build context (build.sh passes its own dir to buildx),
+# and docker only reads .dockerignore from the context root, so this file must
+# stay beside the Dockerfile. The Dockerfile only COPYs the stage dirs
+# (assembled by build.sh beside it); excluding everything else keeps the context
+# small and keeps bundle/, buildspec.yml, and build.sh out of the image.
+*
+!addons-stage/
+!frontend-stage/

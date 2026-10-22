@@ -1,0 +1,11 @@
+# `local` is not in POSIX, but every shell these scripts run under (dash,
+# busybox ash, bash as sh) implements it. Rest of the SC3xxx POSIX checks stay on.
+disable=SC3043
+
+# Resolve the `# shellcheck source=` directives relative to the sourcing script
+# rather than shellcheck's CWD, so `shellcheck -x` works from any directory and
+# not only from the repo root. This only holds because those directives are
+# written script-relative (`common.sh` beside the script, `../../scripts/
+# common.sh` from a build component); a repo-root-relative directive would
+# resolve against SCRIPTDIR and silently fall back to SC1091.
+source-path=SCRIPTDIR

@@ -1,0 +1,33 @@
+# Deliberate cost/architecture trade-offs for this single-instance,
+# cost-conscious stack (see terraform/roots/stack's own comments for the
+# same reasoning applied elsewhere). Re-triage on the next `trivy config`
+# drift, not on a schedule.
+
+# SNS topics (operational alerts): payloads are alarm names and one-line
+# summaries, not the underlying records; a CMK forces every publisher
+# principal into the key policy and turns a misconfigured grant into a
+# silently dropped message rather than an error.
+AVD-AWS-0095
+
+# S3 buckets (pipeline artifacts, web-build cache): already SSE-S3
+# (AES256) encrypted; a CMK adds cost and key-policy upkeep with no
+# meaningful gain for build artifacts and an npm tarball cache.
+AVD-AWS-0132
+
+# ECR tag mutability is required: the same gramps_web_version tag is
+# re-pushed when only the addon set changes (terraform/modules/compute/ecr.tf).
+# Running instances pull by digest regardless, so mutability never affects
+# what launches.
+AVD-AWS-0031
+
+# No WAF in front of CloudFront: single EC2 origin behind CloudFront, no
+# NAT gateway, minimal request volume -- WAF's fixed + per-request cost
+# outweighs the exposure for this stack's threat model.
+AVD-AWS-0011
+
+# Public subnet + open egress: the sole EC2 origin needs outbound access
+# (ECR, SSM, package mirrors) and there is no NAT gateway (its ~$32/mo
+# fixed cost is the thing being traded away). Ingress is already scoped to
+# the CloudFront origin-facing prefix list (modules/network/main.tf).
+AVD-AWS-0104
+AVD-AWS-0164

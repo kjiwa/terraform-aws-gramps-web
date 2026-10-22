@@ -1,0 +1,67 @@
+name: web
+
+# Frontend toolchain (build/web -- lint, format, typecheck, unit tests, build,
+# Playwright e2e). build/web has no runtime AWS dependency, so no credentials
+# are needed.
+
+on:
+  pull_request:
+    paths:
+      - 'build/web/**'
+      - 'terraform/modules/status/lambda/*.schema.json'
+  push:
+    branches: [main, master]
+    paths:
+      - 'build/web/**'
+      - 'terraform/modules/status/lambda/*.schema.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Workaround for GitHub's Node 20 -> 24 runtime migration for JavaScript
+  # actions until CI stops emitting Node 20 deprecation warnings.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: build/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: build/web/.nvmrc
+          cache: npm
+          cache-dependency-path: build/web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # Resolved once, up front, so the cache key doesn't need `npm ls`
+      # inside the cache step itself -- actions/cache can't run arbitrary
+      # commands to compute a key, only hash a file or interpolate a prior
+      # step's output.
+      - id: playwright-version
+        run: echo "version=$(node -e "console.log(require('./package-lock.json').packages['node_modules/@playwright/test'].version)")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.playwright-version.outputs.version }}-chromium
+      # --with-deps installs Chromium's OS-level shared libraries too; on a
+      # cache hit the browser binary itself is already present, but the
+      # system packages it needs are not cached (they belong to the
+      # runner image, not this action), so this still has to run every
+      # time -- it's a no-op download when the binary matches the cache.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

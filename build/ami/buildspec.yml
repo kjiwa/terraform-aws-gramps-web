@@ -1,0 +1,20 @@
+version: 0.2
+
+# Builds the gramps-web-base AMIs (both architectures) with Packer inside the
+# gramps-web-ami CodeBuild project. All logic lives in build/ami/build.sh
+# beside this file; the project injects REGION from tfvars. Manual-trigger only
+# (patching has its own cadence):
+#   aws codebuild start-build --project-name gramps-web-ami
+# New AMIs roll out only once pinned in ami_ids (tfvars) and applied.
+# post_build (not build) so the AMI garbage collection still runs when Packer
+# fails partway through building one of the two architectures.
+#
+# Commands below are relative to the CodeBuild source root, not to this file.
+
+phases:
+  build:
+    commands:
+      - sh build/ami/build.sh
+  post_build:
+    commands:
+      - FORCE=1 AWS_REGION="$REGION" sh scripts/clean-amis.sh --delete

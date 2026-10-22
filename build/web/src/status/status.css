@@ -1,0 +1,892 @@
+:root {
+  /* Secondary and its on-color are overwritten inline by the theme-sync
+     script in <head> once localStorage is read; these are the anonymous-
+     visitor/no-localStorage defaults (see that script's comment). */
+  --gw-secondary: #0277bd;
+  --gw-on-secondary: #fff;
+  --gw-surface: #ffffff;
+  --gw-card: #f7f7f7;
+  --gw-on-surface: #1b1b1b;
+  --gw-muted: #5f5f5f;
+  --gw-border: rgba(0, 0, 0, 0.12);
+  --gw-good: #2e7d32;
+  --gw-warn: #b58900;
+  --gw-bad: #c62828;
+  --gw-gray: #bdbdbd;
+  /* Chart/meter line and fill colors -- deliberately distinct from
+     --gw-good/warn/bad above, which mean SLO bands specifically and would
+     misread as "this line is healthy/unhealthy" if reused for a plain
+     trend or magnitude. --gw-chart-1/2 is a validated color-blind-safe
+     adjacent pair (see the dataviz skill's palette.md), used in fixed
+     order across every two-series chart on this page (p50/p90, CPU/mem)
+     so a color always names the same series everywhere it appears.
+     --gw-chart-3 is the palette's third slot, added for the events lane's
+     third cause class and the recovery split's second segment; slots 1-3
+     validate together all-pairs in both modes. --gw-chart-2-tint is a
+     lighter step of --gw-chart-2 for the recovery split.
+     --gw-chart-track is the unfilled portion of a meter bar: a low-alpha
+     tint of --gw-chart-1 rather than a separate hue, so a bar reads as
+     "this much of the same thing" instead of two unrelated colors. */
+  --gw-chart-1: #2a78d6;
+  --gw-chart-2: #eb6834;
+  --gw-chart-3: #1baf7a;
+  --gw-chart-2-tint: #f6b08f;
+  --gw-chart-track: rgba(42, 120, 214, 0.15);
+  /* Spacing and type scale -- every margin/gap/padding and font-size on
+     the page snaps to one of these rather than its own literal, so two
+     visually-equal gaps (e.g. a card's internal padding and the space
+     above a note) are never one keystroke away from silently drifting
+     apart. Exceptions, deliberately outside the scale: em-based values
+     (.swatch) that must track the font size of whichever legend they sit
+     in rather than a fixed rem step, and 1px structural values (.strip's
+     cell gap, border widths) that are hairlines, not spacing. */
+  --gw-space-1: 0.25rem;
+  --gw-space-2: 0.5rem;
+  --gw-space-3: 0.75rem;
+  --gw-space-4: 1rem;
+  --gw-space-5: 1.5rem;
+  --gw-space-6: 2rem;
+  --gw-space-7: 3rem;
+  --gw-text-xs: 0.72rem;
+  --gw-text-sm: 0.8rem;
+  --gw-text-md: 0.875rem;
+  --gw-text-lg: 1rem;
+  --gw-text-xl: 1.25rem;
+  --gw-text-2xl: 1.4rem;
+  /* Below 40rem (see dl.kv's own media query), every stacked-on-mobile
+     block (Deployment's three, Storage's Volume/Media, Backups'
+     Local/Off-site, Assistant's Model/Tokens) shares this one label
+     column instead of each sizing to its own max-content, so their
+     values all start at the same x-offset. Sized to the longest real
+     label ("Recovery points," ~16 characters) with headroom; dt's
+     overflow-wrap: anywhere means an even-longer future label just
+     wraps rather than breaking anything. Desktop (above 40rem) reverts
+     to per-instance max-content -- see that media query for why. */
+  --gw-kv-label-w: 8rem;
+}
+/* UA default margins on these would otherwise silently outcompete every
+   spacing rule below that assumes it owns the gap between two elements
+   (see .note's margin-top / .chart-key + .stat-row, both of which used to
+   lose an adjacent-sibling collapse to a 1em UA bottom margin no rule here
+   ever set). */
+p,
+h1,
+h2,
+h3,
+h4,
+dl {
+  margin: 0;
+}
+/* Dark ramp: the @media branch covers "system" (no explicit choice, so an
+   unset data-theme falls through to the OS), and the attribute branch
+   covers an explicit dark choice regardless of OS. The block is
+   duplicated across the two selectors rather than shared -- CSS has no
+   "OR" between a media feature and an attribute selector to merge them
+   into one ruleset. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --gw-surface: #141414;
+    --gw-card: #1f1f1f;
+    --gw-on-surface: #e8e8e8;
+    --gw-muted: #a9a9a9;
+    --gw-border: rgba(255, 255, 255, 0.14);
+    --gw-good: #66bb6a;
+    --gw-warn: #ffca28;
+    --gw-bad: #ef5350;
+    --gw-gray: #555555;
+    --gw-chart-1: #3987e5;
+    --gw-chart-2: #d95926;
+    --gw-chart-3: #199e70;
+    --gw-chart-2-tint: #f8a47d;
+    --gw-chart-track: rgba(57, 135, 229, 0.28);
+  }
+}
+:root[data-theme='dark'] {
+  --gw-surface: #141414;
+  --gw-card: #1f1f1f;
+  --gw-on-surface: #e8e8e8;
+  --gw-muted: #a9a9a9;
+  --gw-border: rgba(255, 255, 255, 0.14);
+  --gw-good: #66bb6a;
+  --gw-warn: #ffca28;
+  --gw-bad: #ef5350;
+  --gw-gray: #555555;
+  --gw-chart-1: #3987e5;
+  --gw-chart-2: #d95926;
+  --gw-chart-3: #199e70;
+  --gw-chart-2-tint: #f8a47d;
+  --gw-chart-track: rgba(57, 135, 229, 0.28);
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  background: var(--gw-surface);
+  color: var(--gw-on-surface);
+  font-family:
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    sans-serif;
+}
+body {
+  padding: var(--gw-space-4) var(--gw-space-4) var(--gw-space-7);
+  max-width: 64rem;
+  margin: 0 auto;
+}
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--gw-space-2);
+  margin-bottom: var(--gw-space-4);
+}
+header h1 {
+  font-size: var(--gw-text-2xl);
+}
+#who {
+  color: var(--gw-muted);
+  font-size: var(--gw-text-md);
+}
+a {
+  color: var(--gw-secondary);
+}
+.btn {
+  display: inline-block;
+  margin-top: var(--gw-space-4);
+  padding: 0.55rem 1.1rem;
+  border-radius: 0.4rem;
+  background: var(--gw-secondary);
+  color: var(--gw-on-secondary);
+  text-decoration: none;
+  font-size: var(--gw-text-md);
+}
+#gate {
+  text-align: center;
+  padding: var(--gw-space-7) var(--gw-space-4);
+  color: var(--gw-muted);
+}
+#gate h2 {
+  color: var(--gw-on-surface);
+  font-size: var(--gw-text-xl);
+}
+.hidden {
+  display: none !important;
+}
+/* #skeleton and #panels are required to lay out identically: the skeleton
+   is a static stand-in for the panel column, sized so the swap causes no
+   reflow, and it must be a sibling rather than a parent of #panels (see
+   pages/status.html). Sharing one rule is what keeps that guarantee from
+   depending on someone remembering to edit two selectors. */
+#skeleton,
+#panels {
+  display: grid;
+  gap: var(--gw-space-4);
+}
+/* min-width: 0 overrides the grid item's own default min-width: auto --
+   without it, a wide-enough descendant (e.g. Incidents' table before it
+   can wrap; see .table-scroll) grows #panels' one column to fit, which
+   forces every other card in the column wider too and defeats
+   overflow-x: auto's whole purpose. Same pattern as .stat/.kv dd/the
+   subgrid column div/.legend-group elsewhere in this file. */
+.card {
+  background: var(--gw-card);
+  border: 1px solid var(--gw-border);
+  border-radius: 0.6rem;
+  padding: var(--gw-space-4);
+  min-width: 0;
+}
+.card h3 {
+  font-size: var(--gw-text-lg);
+  margin-bottom: var(--gw-space-3);
+}
+.card .err {
+  color: var(--gw-bad);
+  font-size: var(--gw-text-md);
+}
+.section-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--gw-space-3);
+  margin-top: var(--gw-space-6);
+  font-size: var(--gw-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gw-muted);
+}
+.section-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--gw-border);
+}
+.section-head:first-child {
+  margin-top: 0;
+}
+/* min-width: 0 on .stat overrides the grid item's own default min-width:
+   auto (content-based), which otherwise sizes each column to fit its
+   content on one line regardless of the auto-fit track it was given --
+   without it, a long tile value can push the whole row past the card's
+   width instead of wrapping to more rows on a narrow viewport. The same
+   declaration on .stat-row itself is a structural guard, not a fix for a
+   specific overflow: .card is a plain block, not a flex container, so
+   .stat-row has no outer min-width default to override here. */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(7.5rem, 100%), 1fr));
+  gap: var(--gw-space-3) var(--gw-space-4);
+  margin-bottom: var(--gw-space-2);
+  min-width: 0;
+}
+/* Opt-in, for a row whose items are short enough that a smaller auto-fit
+   minimum still fits them all on one line down to a narrow viewport --
+   Assistant's and Cost's 3-item totals rows (currency amounts, comma-
+   grouped integers), not Reliability's or Incidents' rows, whose wrap at
+   mobile widths is legitimate (real multi-line tile content needing the
+   room). Still auto-fit, not a hardcoded 3-column grid, so it degrades
+   gracefully if ever reused for a 4th item. */
+.stat-row.tight {
+  grid-template-columns: repeat(auto-fit, minmax(min(5rem, 100%), 1fr));
+}
+.stat {
+  min-width: 0;
+}
+.stat .n {
+  font-size: var(--gw-text-xl);
+  font-weight: 600;
+  line-height: 1.15;
+}
+.stat .l {
+  font-size: var(--gw-text-xs);
+  color: var(--gw-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: var(--gw-space-1);
+}
+.stat-row:last-child {
+  margin-bottom: 0;
+}
+.stat .sub {
+  font-size: var(--gw-text-xs);
+  color: var(--gw-muted);
+  margin-top: var(--gw-space-1);
+}
+/* Planned-maintenance marker on an incident row -- muted, not colored:
+   the good/warn/bad palette above means something specific (SLO bands) and
+   "planned" isn't a severity, so it borrows the toggle-group's unpressed
+   button look (border + card bg) instead of a new color. */
+.badge {
+  display: inline-block;
+  padding: 0 var(--gw-space-2);
+  border-radius: 1em;
+  line-height: 1.6;
+  font-size: var(--gw-text-xs);
+  border: 1px solid var(--gw-border);
+  background: var(--gw-card);
+  color: var(--gw-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+/* A state, not a series: an outage is the page's "bad" band. */
+.badge-bad {
+  border-color: var(--gw-bad);
+  color: var(--gw-bad);
+}
+.toggle-group {
+  display: flex;
+  gap: var(--gw-space-2);
+  flex-wrap: wrap;
+  margin: var(--gw-space-3) 0 var(--gw-space-2);
+}
+.toggle-group button {
+  border: 1px solid var(--gw-border);
+  background: var(--gw-card);
+  color: var(--gw-on-surface);
+  border-radius: 0.3rem;
+  padding: var(--gw-space-1) var(--gw-space-3);
+  font-size: var(--gw-text-sm);
+  cursor: pointer;
+}
+.toggle-group button[aria-pressed='true'] {
+  background: var(--gw-secondary);
+  color: var(--gw-on-secondary);
+  border-color: var(--gw-secondary);
+}
+.toggle-group button:focus-visible,
+details > summary:focus-visible,
+a:focus-visible,
+.btn:focus-visible,
+.strip:focus-visible,
+.lane:focus-visible,
+.chart-scrub:focus-visible,
+.window-nav button:focus-visible {
+  outline: 2px solid var(--gw-secondary);
+  outline-offset: 2px;
+}
+/* Pan controls beside a surface's RangeSelector inside .range-scope (see
+   WindowNav.tsx). Buttons borrow .toggle-group button's look -- same visual
+   language for "adjust what this chart shows" -- but stay a distinct rule
+   since disabled state (at the live edge or the 455-day clamp) has no
+   toggle-group equivalent. */
+.window-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--gw-space-2);
+  flex-wrap: wrap;
+  margin: 0 0 var(--gw-space-2);
+  font-size: var(--gw-text-sm);
+  color: var(--gw-muted);
+}
+.window-nav button {
+  border: 1px solid var(--gw-border);
+  background: var(--gw-card);
+  color: var(--gw-on-surface);
+  border-radius: 0.3rem;
+  padding: var(--gw-space-1) var(--gw-space-2);
+  font-size: var(--gw-text-sm);
+  cursor: pointer;
+}
+.window-nav button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* A pan in flight keeps the previous chart/strip visible, dimmed, rather
+   than blanking the card -- see series.ts's useSeries() for why stale data
+   is kept during loading. No transition: a static dim, not a fade, keeps
+   this a non-issue under prefers-reduced-motion by construction. */
+.panning {
+  opacity: 0.6;
+}
+/* Reliability now has two toggle-groups: the counting-mode control above
+   the five uptime tiles, and the range selector+strip+legend+chart group
+   below them (see renderReliability()). The hairline above the second
+   group states that its scope is the strip/chart only, not the tiles --
+   otherwise the lower group could read as if it also filters the row it
+   sits directly beneath. margin-top is set here rather than left to
+   collapse with the tiles' own trailing margin, so the hairline keeps an
+   equal space-3 gap on both sides regardless of what precedes it. */
+.range-scope {
+  margin-top: var(--gw-space-3);
+  border-top: 1px solid var(--gw-border);
+  padding-top: var(--gw-space-3);
+}
+/* padding-top above does not collapse with a child's margin-top the way
+   two margins would -- without this, the range selector's own space-3 top
+   margin stacks on top of it, doubling the gap below the hairline to 1.5rem
+   against the space-3 above it. Same scoping pattern, and same reason, as
+   .subgrid > div > h4:first-child below. */
+.range-scope > .toggle-group:first-child {
+  margin-top: 0;
+}
+/* role="slider" (see Reliability.tsx's Inspector wiring): touch-action:
+   pan-y is what lets a horizontal drag scrub the strip while a vertical one
+   still scrolls the page, and cursor: crosshair signals it's scrubbable to
+   a mouse the way a plain hover-for-title span never needed to. */
+.strip {
+  display: flex;
+  gap: 1px;
+  margin-top: var(--gw-space-2);
+  height: 1.4rem;
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+.strip div {
+  flex: 1;
+  border-radius: 1px;
+}
+.c-good {
+  background: var(--gw-good);
+}
+.c-warn {
+  background: var(--gw-warn);
+}
+.c-bad {
+  background: var(--gw-bad);
+}
+.c-gray {
+  background: var(--gw-gray);
+}
+/* Additive: layered over whichever band class the cell earned, so an
+   in-progress cell still reports its uptime. On a legend swatch it carries
+   no band, rendering as a bare dashed outline -- the border is the signal,
+   not the fill. */
+.c-partial {
+  opacity: 0.7;
+  border: 1px dashed var(--gw-muted);
+}
+/* Chart-line legend swatches, distinct from the c-good/warn/bad/gray band
+   swatches above -- see the --gw-chart-1/2 comment in :root for why they
+   are a separate palette. */
+.c-chart1 {
+  background: var(--gw-chart-1);
+}
+.c-chart2 {
+  background: var(--gw-chart-2);
+}
+.c-chart3 {
+  background: var(--gw-chart-3);
+}
+/* Absorbed warnings: a non-event, neutral. */
+.c-muted {
+  background: var(--gw-muted);
+}
+/* The recovery split's second step: a lighter tint of the Spot-reclaim hue
+   (--gw-chart-2), since it decomposes a Spot-reclaim outage. */
+.c-chart2-tint {
+  background: var(--gw-chart-2-tint);
+}
+/* The events lane's deploy tick is neutral ink, not a series color. */
+.c-ink {
+  background: var(--gw-on-surface);
+}
+dl.kv {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: var(--gw-space-1) var(--gw-space-3);
+  font-size: var(--gw-text-md);
+}
+/* The one width-based media query on the page -- everything else here is
+   content-driven (auto-fit/minmax), which is preferable and stays the
+   default. But "do this card's dl.kv columns actually stack" is a layout
+   question a content query can't answer without CSS container queries,
+   more machinery than this narrow fix warrants: below 40rem, a 2-column
+   .subgrid (~15rem per column + gap) has collapsed to one, so every dl.kv
+   on the page switches to the shared --gw-kv-label-w for cross-block
+   mobile alignment; above it, each dl.kv reverts to max-content sized to
+   its own labels, so short labels (Deployment, Host, Storage) don't
+   reserve space for Backups' much longer ones. */
+@media (max-width: 40rem) {
+  dl.kv {
+    grid-template-columns: minmax(0, var(--gw-kv-label-w)) minmax(0, 1fr);
+  }
+}
+/* overflow-wrap: anywhere on dt is a structural guard, not a fix for a
+   known-long label -- every label today is a short hardcoded literal, but
+   max-content (unlike the old fixed 9rem) has no upper clamp of its own. */
+dl.kv dt {
+  color: var(--gw-muted);
+  overflow-wrap: anywhere;
+}
+/* overflow-wrap: anywhere breaks a token only when it truly cannot fit its
+   column; word-break: break-all (the old rule) broke every long
+   identifier mid-character regardless of whether it needed to
+   (ami-01e41e9cf2b29c21 rendered as ami-01e41e9cf2b29c21 / b). min-width: 0
+   overrides the grid item's own default min-width: auto (content-based),
+   which Firefox honors over the grid track's minmax(0, ...) floor for a
+   white-space: nowrap descendant (Backups' Mode schedule span below) --
+   Chromium shrinks the column to its track width and lets overflow-wrap
+   do its job regardless; Firefox let the nowrap content force dd itself
+   wider than its track, inflating the whole page into horizontal scroll.
+   Confirmed against both engines (Firefox 153, Chromium) before and after. */
+dl.kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.stat .n,
+dl.kv dd,
+.bar-value,
+table.tbl td {
+  font-variant-numeric: tabular-nums;
+}
+table.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--gw-text-md);
+}
+table.tbl th,
+table.tbl td {
+  text-align: left;
+  padding: var(--gw-space-1) var(--gw-space-2);
+  border-bottom: 1px solid var(--gw-border);
+}
+table.tbl th {
+  color: var(--gw-muted);
+  font-weight: 500;
+}
+/* Flush with dl.kv beside it: th/td's own space-2 horizontal padding would
+   otherwise indent the table's first column and overhang its last past
+   every other card's content, which has no equivalent inset. */
+table.tbl th:first-child,
+table.tbl td:first-child {
+  padding-left: 0;
+}
+table.tbl th:last-child,
+table.tbl td:last-child {
+  padding-right: 0;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+/* Five columns of short values: the smaller step keeps them inside a phone's
+   card instead of scrolling. */
+table.tbl.dense {
+  font-size: var(--gw-text-sm);
+}
+table.tbl.dense th,
+table.tbl.dense td {
+  padding-left: var(--gw-space-1);
+  padding-right: var(--gw-space-1);
+}
+table.tbl.dense th:first-child,
+table.tbl.dense td:first-child {
+  padding-left: 0;
+}
+table.tbl.dense th:last-child,
+table.tbl.dense td:last-child {
+  padding-right: 0;
+}
+table.tbl td .sub {
+  color: var(--gw-muted);
+}
+table.tbl td.wrap {
+  overflow-wrap: break-word;
+}
+.note {
+  color: var(--gw-muted);
+  font-size: var(--gw-text-sm);
+  margin-top: var(--gw-space-2);
+  margin-bottom: 0;
+}
+.swatch {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 1px;
+  margin-right: 0.3em;
+  vertical-align: middle;
+}
+/* No margin-right here: gap lives on the containing .chart-key/
+   .legend-group, which is what keeps the space before a following item
+   even instead of doubling up with that container's own leading space. */
+.legend-pair {
+  display: inline-block;
+  white-space: nowrap;
+}
+.nowrap {
+  white-space: nowrap;
+  min-width: 0;
+}
+/* Each group (see renderReliability()) is a .legend-group flex item:
+   flex-wrap moves a whole group to the next line if it doesn't fit, rather
+   than splitting it -- a specified, cross-browser-consistent algorithm,
+   unlike relying on plain inline-box adjacency semantics (which is what
+   silently produced the horizontal-scroll regression this replaced:
+   Firefox let an unconstrained nowrap span's content force its containing
+   box wider than the page, where Chromium didn't -- confirmed against both
+   engines). min-width: 0 overrides the item's own default min-width: auto,
+   which is what lets flex-wrap actually engage instead of the item
+   refusing to shrink. */
+.legend-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gw-space-3);
+}
+.legend-group {
+  display: flex;
+  gap: var(--gw-space-3);
+  white-space: nowrap;
+  min-width: 0;
+}
+.subgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+  gap: var(--gw-space-4) var(--gw-space-5);
+}
+/* Anything adjacent to a subgrid but not part of it otherwise sits flush
+   against it with no gap of its own: Backups' leading Mode/Failures dl.kv
+   above, Storage's relocated disk-meter note below. */
+dl.kv + .subgrid,
+.subgrid + .note {
+  margin-top: var(--gw-space-4);
+}
+/* h4 is a block label wherever it appears, not just as a subgrid column's
+   first child (see the Latency header below) -- margin-top gives it
+   breathing room from whatever precedes it mid-card. The zeroing override
+   below must stay scoped to .subgrid > div > h4:first-child rather than a
+   bare h4:first-child: a bare selector matches "first element child of
+   h4's own parent", and the Latency h4's parent (chartWrap) has non-h4
+   siblings (selector/strip/legend) preceding *it*, not the h4 -- so a bare
+   selector zeroes margin-top there too, for the wrong reason, and the
+   header ends up flush against what precedes it. Scoping to the subgrid
+   shape matches it only where zero is actually correct: a subgrid
+   column's h4 is always the first thing appended to its wrapper div. */
+h4 {
+  font-size: var(--gw-text-md);
+  font-weight: 600;
+  margin-top: var(--gw-space-3);
+  margin-bottom: var(--gw-space-1);
+}
+.subgrid > div > h4:first-child {
+  margin-top: 0;
+}
+details {
+  margin-top: var(--gw-space-2);
+}
+details > summary {
+  cursor: pointer;
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+details > summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 1em;
+  transition: transform 0.15s;
+}
+details[open] > summary::before {
+  transform: rotate(90deg);
+}
+details > .table-scroll {
+  margin-top: var(--gw-space-2);
+}
+/* lineChart()'s wrapper: a real CSS height read back as clientHeight at
+   draw time, so the SVG's viewBox is set in true pixels (scale exactly 1)
+   rather than stretched by a mismatched intrinsic ratio -- see
+   lineChart()'s comment for why that's what makes axes possible at all. */
+.chart {
+  position: relative;
+  height: 8rem;
+  margin-top: var(--gw-space-2);
+}
+/* Assistant's tokens chart only (opts.compact on lineChart()) -- a 30-point
+   sparse sparkline doesn't need Host/Reliability's full 8rem. */
+.chart-compact {
+  height: 5rem;
+}
+.chart svg {
+  display: block;
+}
+/* LineChart's scrub overlay (see inspect.ts): transparent, sized to fill
+   the same measured box as the SVG beside it. touch-action/cursor mirror
+   .strip's -- both are role="slider" scrub surfaces with the same
+   drag-to-scrub-scroll-still-works contract. */
+.chart-scrub {
+  position: absolute;
+  inset: 0;
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+/* strip-key (see ui/Inspector.tsx): the strip's own scrub readout, styled
+   identically to chart-key but a distinct class -- Reliability's card has
+   both a strip and a latency chart, each with its own readout line, and
+   `.chart-key` matching two elements per card would break every existing
+   `.chart-key` locator that assumes one. */
+.chart-key,
+.strip-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--gw-space-3);
+  color: var(--gw-muted);
+  font-size: var(--gw-text-sm);
+  margin-top: var(--gw-space-2);
+}
+/* The strip readout also shows lane marks' text; two lines reserved on a
+   phone so hovering across cells and marks never moves the card. */
+@media (max-width: 40rem) {
+  .strip-key {
+    min-height: calc(2 * 1.2em);
+  }
+}
+.chart-key + .stat-row {
+  margin-top: var(--gw-space-3);
+}
+/* BarChart (see charts/BarChart.tsx): per-bar hit rects over transparent
+   fills. Keyboard focus draws the ring on the rect; hover is the chart's own
+   column wash, so no :hover rule here. */
+.bar-hit {
+  cursor: pointer;
+  outline: none;
+}
+.bar-hit:focus-visible {
+  outline: 2px solid var(--gw-secondary);
+  outline-offset: -2px;
+}
+/* BarChart's floating readout (ui/Tip.tsx). */
+.tip {
+  position: absolute;
+  z-index: 1;
+  width: max-content;
+  max-width: 100%;
+  padding: var(--gw-space-1) var(--gw-space-2);
+  border: 1px solid var(--gw-border);
+  border-radius: 0.3rem;
+  background: var(--gw-surface);
+  color: var(--gw-on-surface);
+  font-size: var(--gw-text-sm);
+  pointer-events: none;
+}
+.tip-title {
+  color: var(--gw-muted);
+}
+.tip-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gw-space-1);
+}
+.tip-row span:not(.swatch) {
+  color: var(--gw-muted);
+}
+/* The events legend holds up to five items, more than a 320px card fits on one line. */
+.legend-group.wrapping {
+  flex-wrap: wrap;
+}
+.legend-group > .legend-lead {
+  font-weight: 600;
+}
+/* Events on the reliability strip's own time axis (ui/EventsLane.tsx). The
+   ::before widens each mark's hover target past its few painted pixels. */
+.lane {
+  position: relative;
+  height: 0.9rem;
+  margin-top: var(--gw-space-1);
+  touch-action: pan-y;
+}
+.lane-mark {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+.lane-mark::before {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--gw-space-1)) calc(-1 * var(--gw-space-2));
+}
+.lane-episode {
+  min-width: 4px;
+  border-radius: 2px;
+}
+.lane-deploy {
+  top: -2px;
+  height: calc(100% + 4px);
+  width: 2px;
+  margin-left: -1px;
+  background: var(--gw-on-surface);
+}
+.lane-mark.active {
+  outline: 1px solid var(--gw-on-surface);
+  outline-offset: 1px;
+}
+/* The recovery split: one 100% bar, two segments with a 2px surface gap
+   and a rounded outer end on each side. */
+.split-bar {
+  display: flex;
+  gap: 2px;
+  height: 0.6rem;
+  margin-top: var(--gw-space-2);
+}
+.split-bar > div:first-child {
+  border-radius: 0.3rem 0 0 0.3rem;
+}
+.split-bar > div:last-child {
+  border-radius: 0 0.3rem 0.3rem 0;
+}
+/* Meter: a level (budget spent, disk used), not a trend -- a filled bar
+   against a lighter tint of the same hue rather than a chart, per the
+   dataviz skill's meter spec (fill = accent, track = a lighter step of
+   the same ramp so state reads across the whole bar). */
+.meter {
+  position: relative;
+  height: 0.6rem;
+  border-radius: 0.3rem;
+  background: var(--gw-chart-track);
+  overflow: hidden;
+  margin-top: var(--gw-space-2);
+}
+.meter > .meter-fill {
+  height: 100%;
+  background: var(--gw-chart-1);
+  border-radius: 0.3rem;
+}
+/* The projection tick (budget meter only) rides on top of the track, not
+   inside the fill bar -- overflow:hidden above clips the fill but not a
+   sibling, so the tick stays visible past the fill's own edge. */
+.meter-tick {
+  position: absolute;
+  top: -0.15rem;
+  bottom: -0.15rem;
+  width: 2px;
+  background: var(--gw-on-surface);
+}
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 8rem) 1fr minmax(0, 4.5rem);
+  align-items: center;
+  gap: var(--gw-space-3);
+  font-size: var(--gw-text-md);
+  margin-top: var(--gw-space-1);
+}
+.bar-row .bar-label {
+  overflow-wrap: anywhere;
+}
+.bar-row .bar-value {
+  text-align: right;
+  color: var(--gw-muted);
+}
+/* Static skeleton blocks, sized to the content each will be replaced by
+   (see the markup inside #panels below) so the swap causes no reflow. */
+.sk {
+  border-radius: 0.3rem;
+  background: var(--gw-border);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sk {
+    background: linear-gradient(
+      90deg,
+      var(--gw-card) 25%,
+      var(--gw-border) 50%,
+      var(--gw-card) 75%
+    );
+    background-size: 200% 100%;
+    animation: status-shimmer 1.5s infinite;
+  }
+}
+@keyframes status-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.sk-stats {
+  height: 2.75rem;
+  margin-bottom: var(--gw-space-2);
+}
+.sk-strip {
+  height: 1.4rem;
+  margin-top: var(--gw-space-2);
+}
+.sk-chart {
+  height: 8rem;
+  margin-top: var(--gw-space-2);
+}
+.sk-rows {
+  height: 9rem;
+}
+
+/* Hides a disabled panel's skeleton before the fetch resolves when
+   _status/config.js sets data-disabled-panels on <html> (see main.tsx). Once
+   real data has rendered, a disabled panel's payload key is absent and its
+   component renders nothing. */
+html[data-disabled-panels~='backups'] [data-panel='backups'] {
+  display: none;
+}
+html[data-disabled-panels~='assistant'] [data-panel='assistant'] {
+  display: none;
+}
+html[data-disabled-panels~='cost'] [data-panel='cost'] {
+  display: none;
+}
+html[data-disabled-panels~='host_metrics'] [data-panel='host_metrics'] {
+  display: none;
+}

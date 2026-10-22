@@ -1,0 +1,18 @@
+[tool.pytest.ini_options]
+testpaths = [
+  "terraform/modules/status/lambda",
+  "terraform/modules/monitoring/lambda",
+]
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+ignore = [
+  # Both Lambdas deliberately catch Exception per AWS call / per status
+  # panel, so one dependency's failure degrades that one field instead of
+  # sinking the whole response (see e.g. status.py's run_section()) --
+  # BLE001 and TRY002 would flag every one of those on purpose.
+  "BLE001",
+  "TRY002",
+]

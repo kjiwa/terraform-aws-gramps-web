@@ -1,0 +1,11 @@
+# Single rightsize tick: replace the instance if a cheaper eligible Spot pool
+# exists in its AZ (decided by current price). Driven by
+# gramps-rightsize-watchdog.timer; installed and enabled by build/ami/install.sh.
+[Unit]
+Description=gramps scheduled scale-back to the cheapest eligible Spot pool
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/gramps-rightsize-watchdog

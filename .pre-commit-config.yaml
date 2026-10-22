@@ -1,0 +1,63 @@
+repos:
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.109.1
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+        # modules/edge and modules/storage declare
+        # configuration_aliases, which cannot bind when a module is validated
+        # standalone as this hook does -- there is no root to supply the alias
+        # (hashicorp/terraform#28490). tflint still lints both directly,
+        # so lint coverage is intact. NOTE: validate coverage is NOT fully
+        # intact -- this hook runs per-directory on changed files and does not
+        # walk up to callers, so a commit touching only one of these modules
+        # gets no validate at all. CI validates every root under
+        # terraform/roots/ to close that gap.
+        exclude: ^terraform/modules/(edge|storage)/
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/terraform/.tflint.hcl
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        # -x follows sourced files (scripts/common.sh) so vars defined there
+        # aren't flagged unused/undefined; the shebangs are #!/bin/sh, so
+        # shellcheck enforces POSIX automatically.
+        args: [-x]
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.38.2
+    hooks:
+      # Both schemas are valid JSON Schema draft 2020-12.
+      - id: check-metaschema
+        files: ^terraform/modules/status/lambda/status_(payload|series)\.schema\.json$
+      # Every frontend test fixture validates against it -- this is what
+      # keeps the TS client's fixtures and status.py's real payload shape
+      # from drifting apart; see status_payload.schema.json's own
+      # description for the rest of the contract (codegen, the pytest
+      # validation test). Excludes fixtures/series/: those validate against
+      # status_series.schema.json below instead.
+      - id: check-jsonschema
+        files: ^build/web/tests/fixtures/.*\.json$
+        exclude: ^build/web/tests/fixtures/series/
+        args: [--schemafile, terraform/modules/status/lambda/status_payload.schema.json]
+      # status_series.schema.json $refs status_payload.schema.json's own
+      # defs by relative path (see its own description) -- deliberately no
+      # $id, so this resolves against the schema file's own path rather
+      # than an unresolvable one.
+      - id: check-jsonschema
+        files: ^build/web/tests/fixtures/series/.*\.json$
+        args: [--schemafile, terraform/modules/status/lambda/status_series.schema.json]

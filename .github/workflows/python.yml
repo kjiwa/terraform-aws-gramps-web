@@ -1,0 +1,45 @@
+name: python
+
+# Lambda Python test suites (pytest). No AWS credentials are needed: the tests
+# stub boto3 at import (see test_status.py/test_availability.py).
+
+on:
+  pull_request:
+    paths:
+      - 'terraform/modules/*/lambda/**'
+      - 'requirements-dev.txt'
+      - 'pyproject.toml'
+  push:
+    branches: [main, master]
+    paths:
+      - 'terraform/modules/*/lambda/**'
+      - 'requirements-dev.txt'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Workaround for GitHub's Node 20 -> 24 runtime migration for JavaScript
+  # actions until CI stops emitting Node 20 deprecation warnings.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          # Matches both Lambdas' declared runtime (python3.13 in
+          # terraform/modules/{status,monitoring}), not an independent pin.
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: pytest

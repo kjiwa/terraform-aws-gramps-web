@@ -1,0 +1,113 @@
+# Deployed by CodeDeploy. Env-agnostic: every ${VAR} is supplied at deploy
+# time via /opt/gramps/.env, rendered by scripts/after_install.sh from SSM
+# (config + secrets) and the pinned image in the revision's gramps.env.
+# Shared service config lives in the anchors below; the grampsweb and celery
+# workers MUST stay in sync, so they merge the same anchors rather than
+# duplicating the blocks.
+
+x-gramps-volumes: &gramps-volumes
+  - ${GRAMPS_DATA_ROOT}/db:/root/.gramps/grampsdb
+  - ${GRAMPS_DATA_ROOT}/users:/app/users
+  - ${GRAMPS_DATA_ROOT}/secret:/app/secret
+  - ${GRAMPS_DATA_ROOT}/index:/app/indexdir
+  - ${GRAMPS_DATA_ROOT}/cache:/app/cache
+  - ${GRAMPS_DATA_ROOT}/backups:/app/backups
+  - ${GRAMPS_DATA_ROOT}/tmp:/tmp
+  # Frontend runtime config: the whole window.grampsjsConfig object, authored
+  # by Terraform (jsonencode) and rendered verbatim by the after_install hook
+  # from SSM. Only grampsweb serves the frontend; celery shares this anchor
+  # and ignores the file.
+  - ./config.js:/app/static/config.js:ro
+
+# app.env: the whole non-secret GRAMPSWEB_* env, rendered by Terraform
+# (terraform/modules/compute/ssm.tf's gramps_env parameter) and fetched
+# verbatim by the after_install hook. Named app.env rather than gramps.env to
+# avoid colliding with the CodeDeploy bundle's own gramps.env (the digest-pinned
+# image reference written by build/app/build.sh) -- a different file in a
+# different directory, but a shared basename would still be a debugging trap.
+# secrets.env: GRAMPSWEB_SECRET_KEY and GRAMPSWEB_EMAIL_HOST_PASSWORD, fetched
+# individually as SecureStrings and written directly by the after_install
+# hook -- never stored in a plain SSM String or in git.
+x-gramps-env-files: &gramps-env-files
+  - ./app.env
+  - ./secrets.env
+
+# Bounds container logs on the root volume; the default json-file driver
+# never rotates.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  valkey:
+    # The single source of the valkey pin. build/ami/install.sh extracts this
+    # line to pre-pull the image into the AMI (keeps docker.io off the
+    # boot-critical path of a spot replacement); after a bump here, an AMI
+    # rebuild restores that property.
+    image: docker.io/valkey/valkey:9-alpine
+    restart: unless-stopped
+    logging: *logging
+    networks:
+      - gramps
+
+  grampsweb:
+    image: ${GRAMPS_IMAGE}
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "80:5000"
+    environment:
+      AWS_DEFAULT_REGION: "${REGION}"
+      GUNICORN_NUM_WORKERS: "1"
+    env_file: *gramps-env-files
+    volumes: *gramps-volumes
+    depends_on:
+      - valkey
+    networks:
+      - gramps
+
+  grampsweb_celery:
+    image: ${GRAMPS_IMAGE}
+    restart: unless-stopped
+    logging: *logging
+    command: celery -A gramps_webapi.celery worker --loglevel=info --concurrency=1
+    environment:
+      # Bedrock invocation (process_chat) runs only here. pydantic-ai builds
+      # the bedrock-runtime client via boto3.Session, whose region resolves
+      # from AWS_DEFAULT_REGION (AWS_REGION is NOT consulted on this path).
+      # CELERY_REGION (from tfvars, ultimately var.llm.region / local.llm_region)
+      # equals the deployment region unless the AI assistant is on and quotas
+      # force another region; scoping the override to celery keeps the web
+      # container's S3 presigning in the primary region.
+      #
+      # MEASURED (not assumed) cross-region consequence when this differs
+      # from the media bucket's region, e.g. prod: llm.region=us-east-2,
+      # media bucket in us-east-1. Ordinary S3 calls (list_objects_v2,
+      # get_object) succeed -- botocore's S3 client transparently retries
+      # against the bucket's actual region via the x-amz-bucket-region
+      # redirect. generate_presigned_url does NOT recover this way: the
+      # redirect fixes the request endpoint but not the SigV4 signing
+      # region, so a presigned URL generated under a mismatched
+      # AWS_DEFAULT_REGION returns HTTP 400 SignatureDoesNotMatch.
+      # This is safe ONLY because no celery task presigns today --
+      # export_media's ObjectStorageFileHandler.create_file_archive streams
+      # via get_object, and presigning (send_file) is a web-request path
+      # gramps_webapi never calls from a celery task. If a future celery
+      # task ever generates a presigned S3 URL, it will fail under a
+      # cross-region llm.region. There is no clean fix available (no
+      # per-service botocore region override, and pinning celery to the
+      # primary region would break Bedrock where the model has zero quota).
+      AWS_DEFAULT_REGION: "${CELERY_REGION}"
+    env_file: *gramps-env-files
+    volumes: *gramps-volumes
+    depends_on:
+      - valkey
+      - grampsweb
+    networks:
+      - gramps
+
+networks:
+  gramps:
+    driver: bridge

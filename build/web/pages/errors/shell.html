@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>__GW_TITLE__</title>
+    <!--
+      Theme application must run before the stylesheet below is parsed, or a
+      dark-preference visitor on the default light attribute sees a flash --
+      see src/error/main.ts's header comment. That ordering requirement is
+      why this script tag precedes the stylesheet link, and why gwFinalize
+      (vite/finalize.ts) downgrades its inlined, otherwise-deferred
+      type="module" tag to a plain blocking script at build time.
+    -->
+    <script type="module" src="/src/error/main.ts"></script>
+    <link rel="stylesheet" href="/src/error/error.css" />
+  </head>
+  <body>
+    <header>
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        width="22"
+        height="22"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="4" r="2" />
+        <circle cx="5" cy="20" r="2" />
+        <circle cx="19" cy="20" r="2" />
+        <path d="M12 6v6M12 12H5v6M12 12h7v6" />
+      </svg>
+      <span class="title">__GW_TITLE__</span>
+    </header>
+    <main>
+      <div class="card">
+        <div class="icon">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="4" r="2" />
+            <circle cx="5" cy="20" r="2" />
+            <circle cx="19" cy="20" r="2" />
+            <path d="M12 6v6M12 12H5v6M12 12h7v6" />
+          </svg>
+        </div>
+        <h1>__GW_HEADING__</h1>
+        <p class="msg">__GW_BODY__</p>
+        __GW_CONTEXT__
+        <div><span class="chip">Error __GW_STATUS__ &middot; __GW_STATUS_TEXT__</span></div>
+        <div>
+          <button class="retry" type="button" onclick="location.reload()">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="17"
+              height="17"
+              aria-hidden="true"
+            >
+              <path d="M20 11a8 8 0 1 0-1 4M20 5v4h-4" />
+            </svg>
+            Try again
+          </button>
+        </div>
+        <p class="cd">Retrying automatically in <span id="cd">10</span>s</p>
+      </div>
+    </main>
+    <footer>Powered by Gramps Web__GW_STATUS_LINK__</footer>
+  </body>
+</html>
