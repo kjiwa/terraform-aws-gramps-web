@@ -1,5 +1,7 @@
 data "aws_region" "current" {}
 
+data "aws_caller_identity" "current" {}
+
 # For the derived-az default; unused when var.az is set.
 data "aws_availability_zones" "available" {
   state = "available"

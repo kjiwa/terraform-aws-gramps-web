@@ -513,6 +513,7 @@ gramps`).
 | [aws_sns_topic_subscription.bedrock_alerts_email](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sns_topic_subscription) | resource |
 | [aws_ami.base](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/ami) | data source |
 | [aws_availability_zones.available](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones) | data source |
+| [aws_caller_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
 | [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
 | [aws_route53_zone.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/route53_zone) | data source |
 
@@ -552,20 +553,26 @@ gramps`).
 
 | Name | Description |
 | ---- | ----------- |
+| account\_id | AWS account ID the module deploys into. Read by the operator scripts to refuse credentials for another account. |
 | ami\_build\_project | AMI CodeBuild project name. Trigger with: aws codebuild start-build --project-name <this>. |
 | asg\_name | Auto Scaling Group name. Read by scripts/azmove.sh. |
-| backup\_copy\_vault\_arn | Vault each recovery point is copied to (cross\_region: this account, backup region; cross\_account: the backup account). Null when backups stay local or are disabled. Read by scripts/backup.sh run. |
-| backup\_vault\_name | Local AWS Backup vault the daily plan writes to; null when backup.mode = disabled. Read by scripts/backup.sh (run and status). |
+| backup\_copy\_vault\_arn | Vault each recovery point is copied to (cross\_region: this account, backup region; cross\_account: the backup account). Null when backups stay local or are disabled. Read by scripts/backup.sh and scripts/restore.sh, which also take the destination account and vault name from its ARN. |
+| backup\_mode | Backup mode (var.backup.mode: local, cross\_region, cross\_account, or disabled). Read by scripts/restore.sh to refuse restore paths the mode does not support. |
+| backup\_region | Region of the off-site backup copy destination; the module's own region when backups stay local or are disabled. Read by scripts/restore.sh. |
+| backup\_vault\_name | Local AWS Backup vault the daily plan writes to; null when backup.mode = disabled. Read by scripts/backup.sh and scripts/restore.sh. |
 | codeconnections\_arn | Shared GitHub CodeConnections ARN. Approve once (PENDING -> AVAILABLE) before the first build or pipeline run. |
 | ebs\_kms\_key\_arn | CMK ARN encrypting the data volume; null unless backup.mode = cross\_account (the only mode that needs one). Read by scripts/azmove.sh rekey. |
-| ebs\_volume\_arn | EBS data volume ARN. Read by scripts/backup.sh run, which passes it to `aws backup start-backup-job --resource-arn`. |
-| ebs\_volume\_id | EBS data volume ID. Read by scripts/azmove.sh and scripts/backup.sh snapshot. |
+| ebs\_volume\_arn | EBS data volume ARN. Read by scripts/backup.sh run and scripts/restore.sh drill, which pass it to `aws backup start-backup-job --resource-arn`. |
+| ebs\_volume\_id | EBS data volume ID. Read by scripts/azmove.sh, scripts/backup.sh snapshot, and scripts/restore.sh. |
 | ecr\_repository\_url | ECR repository the app image is pushed to and pulled from. |
 | eip\_public\_ip | EIP public IP. The CloudFront origin address. |
+| env | Environment name (var.env). Read by the operator scripts, which namespace SSM parameter paths with it. |
 | gramps\_pipeline\_name | App CodePipeline name. Triggered by scripts/deploy.sh gramps. |
-| media\_bucket\_arn | S3 media bucket ARN. Read by scripts/backup.sh run, which passes it to `aws backup start-backup-job --resource-arn`. |
-| media\_bucket\_name | S3 media bucket name. |
+| media\_bucket\_arn | S3 media bucket ARN. Read by scripts/backup.sh run and scripts/restore.sh drill, which pass it to `aws backup start-backup-job --resource-arn`. |
+| media\_bucket\_name | S3 media bucket name. Read by scripts/media.sh and scripts/restore.sh drill. |
 | primary\_distribution\_arn | CloudFront distribution ARN for the primary site. Scope an additional\_origins S3 bucket policy to it. |
 | primary\_distribution\_id | CloudFront distribution ID for the primary site (manual invalidations). |
+| primary\_domain | Primary domain the site is served from (var.primary\_domain). Read by scripts/media.sh to reach the app API. |
+| region | Region the module deploys into. Read by the operator scripts for every AWS call. |
 | status\_url | Authenticated operational status page URL (https://<primary\_domain>/\_status). Requires signing in to Gramps Web at a role >= status.min\_role. Null when status.enabled is false. |
 <!-- END_TF_DOCS -->

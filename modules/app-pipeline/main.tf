@@ -3,7 +3,7 @@
 # image from source + addons, push a multi-arch index to ECR, emit the
 # CodeDeploy bundle with the digest pinned) -> Deploy (the existing CodeDeploy
 # app/group, which rolls the running instance and seeds every future spot
-# replacement). The image version lives in tfvars and flows in as a build env
+# replacement). The image version is a module variable and flows in as a build env
 # var; running the pipeline builds and ships that version.
 
 data "aws_caller_identity" "current" {}
@@ -14,8 +14,8 @@ locals {
   account_id = data.aws_caller_identity.current.account_id
   region     = data.aws_region.current.region
 
-  # Everything build/app/build.sh consumes, all sourced from tfvars: a
-  # version bump is "change gramps_web_version, apply, run the pipeline".
+  # Everything build/app/build.sh consumes, all sourced from module variables: a
+  # version bump is "change gramps.version, apply, run the pipeline".
   build_env = {
     ECR_REPO_URL       = var.ecr_repository_url
     GRAMPS_WEB_VERSION = var.gramps_web_version

@@ -2,7 +2,7 @@
 # build/ami/build.sh, so patch rebuilds run under a scoped role instead of
 # workstation admin credentials. Manual-trigger only (no webhook): the base
 # AMI is rebuilt for OS/agent patching on its own cadence, not per commit.
-# The resulting AMIs deploy nothing until pinned in ami_ids (tfvars) and
+# The resulting AMIs deploy nothing until pinned in ami_ids and
 # applied -- the build produces artifacts, terraform owns rollout.
 
 data "aws_caller_identity" "current" {}
@@ -23,7 +23,7 @@ resource "aws_cloudwatch_log_group" "build" {
 
 resource "aws_codebuild_project" "ami" {
   name         = local.name
-  description  = "Builds the gramps-web-base AMIs (Packer, both architectures). Roll out by pinning ami_ids in tfvars and applying."
+  description  = "Builds the gramps-web-base AMIs (Packer, both architectures). Roll out by pinning ami_ids and applying."
   service_role = aws_iam_role.ami_build.arn
 
   source {

@@ -1,5 +1,5 @@
 # Base AMIs built by Packer (build/ami/gramps-ami.pkr.hcl, normally via the
-# gramps-web-ami CodeBuild project), pinned per architecture in tfvars. A
+# gramps-web-ami CodeBuild project), pinned per architecture. A
 # rebuild changes nothing until ami_ids is bumped: AMI rollout is a deliberate
 # commit (bump, apply -> new launch template version -> ASG instance refresh)
 # and rollback is reverting it. Candidates, newest first:

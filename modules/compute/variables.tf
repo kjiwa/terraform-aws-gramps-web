@@ -4,7 +4,7 @@ variable "env" {
 }
 
 variable "ami_ids" {
-  description = "Per-architecture base AMI IDs (gramps-web-base Packer builds), pinned in tfvars. One launch template per architecture binds to each; see launch_template.tf for how to list candidates."
+  description = "Per-architecture base AMI IDs (gramps-web-base Packer builds), pinned by the caller. One launch template per architecture binds to each; see launch_template.tf for how to list candidates."
   type        = map(string)
   validation {
     condition     = sort(keys(var.ami_ids)) == tolist(["arm64", "x86_64"])

@@ -3,7 +3,7 @@
 
 mock_provider "aws" {
   mock_data "aws_caller_identity" {
-    defaults = { account_id = "111111111111", arn = "arn:aws:iam::111111111111:user/test" }
+    defaults = { account_id = "123456789012", arn = "arn:aws:iam::123456789012:user/test" }
   }
   mock_data "aws_region" {
     defaults = { region = "us-east-1", name = "us-east-1" }
@@ -20,9 +20,9 @@ variables {
   subnet_ids                       = ["subnet-0123456789abcdef0"]
   origin_sg_id                     = "sg-0123456789abcdef0"
   ebs_volume_id                    = "vol-0123456789abcdef0"
-  ebs_volume_arn                   = "arn:aws:ec2:us-east-1:111111111111:volume/vol-0123456789abcdef0"
-  media_bucket_name                = "gramps-web-media-111111111111"
-  media_bucket_arn                 = "arn:aws:s3:::gramps-web-media-111111111111"
+  ebs_volume_arn                   = "arn:aws:ec2:us-east-1:123456789012:volume/vol-0123456789abcdef0"
+  media_bucket_name                = "gramps-web-media-123456789012"
+  media_bucket_arn                 = "arn:aws:s3:::gramps-web-media-123456789012"
   pathological_refresh_alarm_names = ["gramps-web-instance-refresh-pathological"]
   base_url                         = "https://example.org"
   rightsize_schedule               = null

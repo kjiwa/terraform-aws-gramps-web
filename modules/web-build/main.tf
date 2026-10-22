@@ -17,7 +17,7 @@ locals {
   account_id = data.aws_caller_identity.current.account_id
 
   # Everything build/web/buildspec.yml's publish step consumes, all sourced
-  # from tfvars, so the build never needs terraform or the state backend.
+  # from module variables, so the build never needs terraform or the state backend.
   build_env = {
     SITE_TITLE         = var.site_title
     STATUS_PUBLIC_PAGE = tostring(var.status_public_page)

@@ -1,6 +1,6 @@
 mock_provider "aws" {
   mock_data "aws_caller_identity" {
-    defaults = { account_id = "111111111111", arn = "arn:aws:iam::111111111111:user/test" }
+    defaults = { account_id = "123456789012", arn = "arn:aws:iam::123456789012:user/test" }
   }
   mock_data "aws_region" {
     defaults = { region = "us-east-1", name = "us-east-1" }
@@ -25,7 +25,7 @@ mock_provider "aws" {
     defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
   }
   mock_data "aws_caller_identity" {
-    defaults = { account_id = "111111111111", arn = "arn:aws:iam::111111111111:user/test" }
+    defaults = { account_id = "123456789012", arn = "arn:aws:iam::123456789012:user/test" }
   }
   mock_data "aws_region" {
     defaults = { region = "us-east-1", name = "us-east-1" }
@@ -48,7 +48,7 @@ override_resource {
   target          = module.edge.aws_acm_certificate.this
   override_during = plan
   values = {
-    arn = "arn:aws:acm:us-east-1:111111111111:certificate/00000000-0000-0000-0000-000000000000"
+    arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
     domain_validation_options = [
       { domain_name = "example.org", resource_record_name = "_a.example.org.", resource_record_type = "CNAME", resource_record_value = "a.acm.example." },
       { domain_name = "www.example.org", resource_record_name = "_b.example.org.", resource_record_type = "CNAME", resource_record_value = "b.acm.example." },
@@ -637,4 +637,25 @@ run "llm_limits_must_be_positive" {
     llm = { max_tokens = 0 }
   }
   expect_failures = [var.llm]
+}
+
+run "outputs_the_operator_scripts_read" {
+  command = plan
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
+  assert {
+    condition = (
+      output.env == "prod" && output.region == "us-east-1" &&
+      output.primary_domain == "example.org" && output.backup_mode == "local" &&
+      output.backup_region == "us-east-1"
+    )
+    error_message = "env, region, primary_domain, backup_mode, and backup_region must reflect the inputs and defaults."
+  }
+  assert {
+    condition     = output.account_id == "123456789012"
+    error_message = "account_id must be the caller's account."
+  }
 }

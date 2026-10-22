@@ -334,7 +334,7 @@ data "aws_iam_policy_document" "instance" {
 
   # Bedrock: invoke the AI chat model. Present only when the assistant is
   # enabled -- a disabled feature grants nothing. The model ID and invoke
-  # region come from tfvars (var.llm), so this grant can never drift from what
+  # region come from var.llm, so this grant can never drift from what
   # the app calls. Cross-region inference profiles (us./eu./apac./jp./au./
   # global. prefix) route to AWS-owned foundation models in the profile's
   # member regions; the foundation-model ARN carries no account field and is

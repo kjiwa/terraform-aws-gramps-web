@@ -70,7 +70,7 @@ resource "aws_cloudfront_function" "status_rewrite" {
 # instead of flashing into view and then vanishing once the real payload
 # lands. The explicit cache_control is load-bearing: CachingOptimized's
 # 24-hour default_ttl applies only when the origin sends no cache header, and
-# Terraform issues no invalidation of its own -- without it, a tfvars toggle
+# Terraform issues no invalidation of its own -- without it, a variable toggle
 # flip would apply cleanly and stay invisible at the edge for a day.
 resource "aws_s3_object" "status_config" {
   count = var.status_enabled ? 1 : 0

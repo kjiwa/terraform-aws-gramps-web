@@ -31,7 +31,7 @@ locals {
   # CONSTRUCTED rather than passed in -- unlike a KMS key ARN (random UUID), a
   # vault ARN is fully determined by account + region + name, so the contract
   # with keel's backup-vault-account module is the name and nothing has to be pasted into
-  # tfvars after the fact. If the name drifts, copy jobs fail at runtime; there
+  # configuration after the fact. If the name drifts, copy jobs fail at runtime; there
   # is no plan-time check for a vault in another account.
   backup_copy_vault_arn = (
     local.backup_cross_region ? one(aws_backup_vault.replica[*].arn) :

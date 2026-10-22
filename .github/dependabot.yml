@@ -48,4 +48,4 @@ updates:
       interval: monthly
 
   # skip-ecosystem: docker -- Dockerfile FROM is fully parameterized; the
-  # version lives in tfvars per environment, upgraded by a deliberate procedure.
+  # version lives in the module variables, upgraded by a deliberate procedure.
