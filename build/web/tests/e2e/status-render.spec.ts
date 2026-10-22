@@ -64,7 +64,7 @@ for (const { name, toggles } of COMBOS) {
       expect(parts[3]).toBeGreaterThan(0);
     }
 
-    // DEFAULT_RANGE is "30d"; RANGES' own cell count for it (status.py:165)
+    // DEFAULT_RANGE is "30d"; RANGES' own cell count for it
     // is 30, independent of every toggle above.
     await expect(
       page.locator('.card', { hasText: 'Reliability' }).locator('.strip > div'),

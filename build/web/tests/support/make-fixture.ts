@@ -4,7 +4,7 @@
  *
  * The checked-in fixture this replaces had one range and two cells -- too
  * thin to be an oracle for the toggle matrix or the render snapshots. This script rebuilds it against
- * status.py's real shape (RANGES around :162, CHART_RANGES around :180):
+ * status.py's real shape (RANGES, CHART_RANGES):
  * all five reliability ranges at their real cell counts (24h=24, 7d=28,
  * 30d=30, 90d=90, 1y=52), the latency series at the same counts, and
  * host_metrics/assistant chart series at CHART_RANGES lengths

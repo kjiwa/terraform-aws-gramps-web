@@ -59,6 +59,8 @@ override_resource {
 variables {
   primary_domain = "example.org"
   alert_email    = "ops@example.org"
+  repo_url       = "https://github.com/kjiwa/terraform-aws-gramps-web"
+  source_branch  = "release-0.9"
 }
 
 run "defaults_plan_with_only_the_required_inputs" {
@@ -79,10 +81,6 @@ run "defaults_plan_with_only_the_required_inputs" {
   assert {
     condition     = local.zone_ids["example.org"] == "Z0000000000000TEST" && length(local.zone_ids) == 1
     error_message = "Zone ids must come from the looked-up hosted zones."
-  }
-  assert {
-    condition     = var.repo_url == "https://github.com/kjiwa/terraform-aws-gramps-web"
-    error_message = "repo_url must default to the module's public repo."
   }
   assert {
     condition     = var.gramps.version == "26.10.2"
