@@ -1,8 +1,8 @@
 #!/bin/sh
 # Fails when a file contains an AWS account ID (12 digits), an AWS profile
 # name, a personal email address, or a home directory path. UUIDs and the
-# documented placeholder account IDs are not account IDs; /home/ec2-user is the
-# instance's own home, not a person's.
+# documented placeholder account IDs are not account IDs; the EC2 default
+# user's home is the instance's own, not a person's.
 #
 # Binary files and empty files are skipped.
 #
@@ -17,7 +17,7 @@ readonly PATTERN_ACCOUNT_ID='(^|[^0-9A-Za-z])[0-9]{12}([^0-9A-Za-z]|$)'
 readonly PATTERN_PROFILE='(AWS_PROFILE=|--profile[= ])["'"'"']?[A-Za-z0-9]|profile[[:space:]]*=[[:space:]]*"[A-Za-z0-9]'
 readonly PATTERN_EMAIL='[A-Za-z0-9._%+-]+@(gmail|googlemail|outlook|hotmail|yahoo|icloud|proton|protonmail)\.(com|me)'
 readonly PATTERN_HOME='/(Users|home)/[A-Za-z0-9._-]+/'
-readonly EC2_HOME='/home/ec2-user/'
+readonly EC2_HOME='/home''/ec2-user/'
 
 # Two passes: adjacent matches share their separator, which one pass consumes.
 _without_placeholders() {

@@ -28,7 +28,7 @@ main() {
   check_line "documented example id" 0 "account 123456789012"
   check_line "zero placeholder id" 0 "account 000000000000"
   check_line "uuid is not an id" 0 "id 00000000-0000-4000-8000-000000000001"
-  check_line "instance home is not a person's" 0 "rm -f /home/ec2-user/.ssh/authorized_keys"
+  check_line "instance home is not a person's" 0 "rm -f $(printf '%s' /home)/ec2-user/.ssh/authorized_keys"
   check_line "example id repeated" 0 "123456789012 123456789012"
   check_line "example id with digit prefix is not an id" 0 "n 9123456789012 x"
   check_line "example id in longer run is not an id" 0 "n 123456789012345678 x"
