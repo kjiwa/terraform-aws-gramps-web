@@ -24,17 +24,21 @@ CloudFront, and all IAM.
 
 ## Prerequisites
 
-- `aws`, `terraform`, `jq`, `curl` on PATH; credentials for the env's account.
-- The stack is applied and `scripts/tf.sh <env> output` works.
-- Run from the repo root or invoke by path. `ENV` selects the environment
-  (default prod). Region comes from `primary_region` in `terraform.tfvars`
-  (`AWS_REGION` overrides). State backups land in `scripts/` as
-  `scripts/azmove-state-<ts>.json` (matching `.gitignore`).
+- `aws`, `terraform`, `jq`, `curl` on PATH; credentials for the stack's account.
+- The stack is applied, and its root exports the module as the `gramps_web`
+  output, so `terraform -chdir=<root> output -json` includes it.
+- Every command takes the root that instantiates the module: `--root <root>`
+  before the subcommand, or `GRAMPS_WEB_ROOT=<root>`. Region and account come
+  from the module's outputs. Terraform inherits `TF_DATA_DIR` and
+  `TF_CLI_ARGS_*` from the environment, so a root with a non-default data dir
+  or required variables works by setting them (`adopt` runs `terraform import`,
+  which evaluates the configuration: set `TF_CLI_ARGS_import=-var-file=...`).
+- State backups land in the current directory as `azmove-state-<ts>.json`.
 
 ## Step 1 — choose the AZ (manual)
 
 ```sh
-./scripts/azmove.sh score
+./scripts/azmove.sh --root <root> score
 ```
 
 Prints the Spot placement score (1–10, higher is better) per AZ for the
@@ -46,7 +50,7 @@ you want to score a different set.
 ## Step 2 — prepare (automated; takes the site down)
 
 ```sh
-./scripts/azmove.sh prepare <az>
+./scripts/azmove.sh --root <root> prepare <az>
 ```
 
 Scales the ASG to 0 (the site goes down and the volume detaches), snapshots the
@@ -62,18 +66,23 @@ wait can take several minutes.
 ## Step 3 — adopt (automated; state surgery, gated)
 
 ```sh
-./scripts/azmove.sh adopt vol-0newvolume <az>
+./scripts/azmove.sh --root <root> adopt vol-0newvolume <az>
 ```
 
 Backs up Terraform state to `azmove-state-<timestamp>.json`, sanity-checks the
-new volume (right AZ, right tag), removes the old volume from state (the AWS
-resource is left intact), imports the new one under the same address, and sets
-`az` in `terraform.tfvars`. Confirmation required before the state edit.
+new volume (right AZ, right tag), finds the volume's state address (the one
+ending `module.storage.aws_ebs_volume.this`, whatever your root named the
+module), removes the old volume from state (the AWS resource is left intact),
+and imports the new one under the same address. Confirmation required before
+the state edit.
+
+It does not touch your configuration. After an AZ move, set `az = "<az>"` on the
+module in your root before planning; after a re-key, leave `az` as it is.
 
 ## Step 4 — review and apply (MANUAL — do not skip)
 
 ```sh
-scripts/tf.sh prod plan
+terraform -chdir=<root> plan
 ```
 
 Confirm in the plan:
@@ -87,7 +96,7 @@ Confirm in the plan:
 Then:
 
 ```sh
-scripts/tf.sh prod apply
+terraform -chdir=<root> apply
 ```
 
 Apply must happen before scale-up. The `AttachVolume` IAM policy is scoped to
@@ -97,7 +106,7 @@ is denied the attach.
 ## Step 5 — finish (automated)
 
 ```sh
-./scripts/azmove.sh finish https://<your-primary-domain>/
+./scripts/azmove.sh --root <root> finish https://<your-primary-domain>/
 ```
 
 Scales the ASG back to 1, waits for an InService instance, and (if you pass a
@@ -110,7 +119,7 @@ existing filesystem, mounts the data, and reassociates the EIP.
 After a few days of confidence:
 
 ```sh
-aws ec2 delete-volume --region <primary_region> --volume-id vol-0oldvolume
+aws ec2 delete-volume --region <region> --volume-id vol-0oldvolume
 ```
 
 The script never deletes the old volume — it's your rollback until you're sure.
@@ -122,7 +131,7 @@ Nothing destroys data before Step 4. Until you apply:
 - The original volume and the snapshot both still exist.
 - To abandon the move: `terraform state push -force azmove-state-<timestamp>.json`
   to restore the pre-adopt state (`-force`: the adopt's `state rm` raised the
-  serial), revert `az` in `terraform.tfvars`, scale the ASG back to 1,
+  serial), revert `az` in your configuration, scale the ASG back to 1,
   and delete the restored volume you created in Step 2.
 
 After a failed apply, the original volume is still intact; re-point state at it

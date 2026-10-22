@@ -4,7 +4,7 @@
 # CodeBuild -- never on the instance launch path.
 #
 # build/app/build.sh stages the selected addons under addons-stage/
-# (driven by gramps_addons in tfvars), so this file is a pure FROM + COPY with
+# (driven by gramps.addons), so this file is a pure FROM + COPY with
 # no RUN. That lets buildx assemble both linux/arm64 and linux/amd64 by stacking
 # one file-copy layer on each arch's base manifest, with no QEMU emulation.
 ARG BASE_IMAGE
@@ -18,7 +18,7 @@ FROM ${BASE_IMAGE}:${GRAMPS_WEB_VERSION}
 ARG GRAMPS_SERIES
 COPY addons-stage/ /root/.gramps/gramps${GRAMPS_SERIES}/plugins/
 
-# Optional frontend override (gramps_web_repo/gramps_web_ref in tfvars): the
+# Optional frontend override (gramps.web_repo and gramps.web_ref): the
 # build script stages that repo's built dist/ here; empty stage (the normal
 # case) leaves the upstream frontend untouched. COPY merges over /app/static
 # (the image's GRAMPSWEB_STATIC_PATH): index.html and the new hashed bundles

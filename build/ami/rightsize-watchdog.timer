@@ -1,6 +1,6 @@
 # Fires the rightsize check. Daily 09:00 UTC is only the baked-in fallback:
-# user-data overrides OnCalendar via a drop-in from rightsize_schedule in the
-# env's terraform.tfvars (daily to hourly), so set the schedule there, not
+# user-data overrides OnCalendar via a drop-in from rightsize.schedule on the
+# module (daily to hourly), so set the schedule there, not
 # here. The check is a no-op when no eligible Spot pool is meaningfully cheaper
 # than the current one (or the instance is not Spot), and the script's own
 # uptime cooldown bounds replacement churn under aggressive schedules, so the

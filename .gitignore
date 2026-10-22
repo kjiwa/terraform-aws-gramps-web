@@ -1,24 +1,20 @@
-# Per-instance Terraform data dirs (backend binding, providers); state is remote.
-terraform/config/*/*/.terraform/
-# In-place init by CI (terraform validate) and the terraform_validate pre-commit hook.
-terraform/roots/*/.terraform/
-# The terraform_validate/terraform_tflint hooks init every module dir they
-# check, so a local `pre-commit run --all-files` leaves these behind. A child
-# module never has a lock file of its own; only the roots do (those are tracked).
-terraform/modules/*/.terraform/
-terraform/modules/*/.terraform.lock.hcl
+# Created by init in the root module, the child modules, and the examples. Only
+# the examples' lock files are tracked; a module's consumer owns its own.
+.terraform/
+.terraform.lock.hcl
+!examples/*/.terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
 # State backups written by scripts/azmove.sh adopt.
-scripts/azmove-state-*.json
+azmove-state-*.json
 # Restore drill manifests written by scripts/restore.sh drill -- carry the same
 # account-scoped detail as state.
-scripts/restore-drill-*.json
+restore-drill-*.json
 # archive_file artifact rebuilt by every plan/apply; never commit it.
-terraform/modules/monitoring/lambda/availability.zip
+modules/monitoring/lambda/availability.zip
 # Same, for the status Lambda -- built from lambda/ (2 files) into dist/ so
 # the archive_file output_path can't recursively zip itself.
-terraform/modules/status/dist/
+modules/status/dist/
 # Python bytecode cache, left behind by running a Lambda's .py source locally
 # (e.g. python3 -m py_compile). archive_file zips the source directly, so
 # this is never part of a deployed package.

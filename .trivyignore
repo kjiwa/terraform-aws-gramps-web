@@ -1,5 +1,5 @@
 # Deliberate cost/architecture trade-offs for this single-instance,
-# cost-conscious stack (see terraform/roots/stack's own comments for the
+# cost-conscious stack (see the comments in the modules for the
 # same reasoning applied elsewhere). Re-triage on the next `trivy config`
 # drift, not on a schedule.
 
@@ -15,7 +15,7 @@ AVD-AWS-0095
 AVD-AWS-0132
 
 # ECR tag mutability is required: the same gramps_web_version tag is
-# re-pushed when only the addon set changes (terraform/modules/compute/ecr.tf).
+# re-pushed when only the addon set changes (modules/compute/ecr.tf).
 # Running instances pull by digest regardless, so mutability never affects
 # what launches.
 AVD-AWS-0031

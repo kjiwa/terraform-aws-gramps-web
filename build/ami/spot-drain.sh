@@ -56,23 +56,23 @@ drain() {
 }
 
 main() {
-  local token code
-  token=""
+  _main_code=""
+  _main_token=""
   log "Watching $IMDS/meta-data/spot/instance-action every ${POLL_SECONDS}s..."
   while :; do
-    if [ -z "$token" ]; then
-      token="$(imds_token)" || token=""
+    if [ -z "$_main_token" ]; then
+      _main_token="$(imds_token)" || _main_token=""
     fi
-    if [ -n "$token" ]; then
-      code="$(curl -s -o /dev/null -w '%{http_code}' -m 2 \
-        -H "X-aws-ec2-metadata-token: $token" \
-        "$IMDS/meta-data/spot/instance-action")" || code=000
-      case "$code" in
+    if [ -n "$_main_token" ]; then
+      _main_code="$(curl -s -o /dev/null -w '%{http_code}' -m 2 \
+        -H "X-aws-ec2-metadata-token: $_main_token" \
+        "$IMDS/meta-data/spot/instance-action")" || _main_code=000
+      case "$_main_code" in
       200)
         drain
         return 0
         ;;
-      401) token="" ;; # Token expired; refetch next loop.
+      401) _main_token="" ;; # Token expired; refetch next loop.
       esac
     fi
     sleep "$POLL_SECONDS"

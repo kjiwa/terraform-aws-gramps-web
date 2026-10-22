@@ -19,8 +19,8 @@
 #                             blank <size-gb> volume to the RUNNING instance,
 #                             stop the app, rsync the tree across, detach, THEN
 #                             scale ASG to 0 -- same AZ and key as the live volume
-#   adopt   <new-vol> <az>    back up state, swap the volume in state, set az in
-#                             tfvars -> then YOU run terraform plan / apply
+#   adopt   <new-vol> <az>    back up state, swap the volume in state -> then YOU
+#                             set az on the module, run terraform plan / apply
 #   finish  [url]             AFTER your apply: scale ASG to 1, wait InService,
 #                             optionally poll <url> for health
 #
@@ -44,10 +44,14 @@
 #     volume ARN; it must be updated by apply before the new volume can attach)
 #   - deleting the old volume (keep it as a fallback for a few days)
 #
-# Env: ENV (default prod; selects terraform/config/stack/<env>), AWS_REGION (default:
-#      primary_region from the env's tfvars), INSTANCE_TYPES (space-separated,
-#      for `score`; default: the types the live ASG's requirements resolve to), FORCE=1 (skip
-#      prompts).
+# Root: --root DIR, or $GRAMPS_WEB_ROOT, is the Terraform root that
+#       instantiates the module (see common.sh). Place it before the subcommand.
+#       `adopt` runs terraform import, which evaluates the root's configuration:
+#       set TF_CLI_ARGS_import (for example -var-file=...) if it needs variables.
+# Env:  INSTANCE_TYPES (space-separated, for `score`; default: the types the
+#       live ASG's requirements resolve to), FORCE=1 (skip prompts).
+# Files: `adopt` writes a state backup, azmove-state-*.json, to the current
+#       directory.
 set -eu
 
 SCRIPT_DIR="$(
@@ -55,17 +59,14 @@ SCRIPT_DIR="$(
   cd -- "$(dirname -- "$0")" && pwd
 )"
 readonly SCRIPT_DIR
-REPO_ROOT="$(dirname -- "$SCRIPT_DIR")"
-readonly REPO_ROOT
 
 readonly LOG_PREFIX="azmove"
+# shellcheck source=keel/common.sh
+. "$SCRIPT_DIR/keel/common.sh"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 
-env_paths
-REGION="$(resolve_region "$TFVARS")"
-readonly REGION
-readonly VOL_RESOURCE="module.storage.aws_ebs_volume.this"
+readonly VOL_RESOURCE_SUFFIX="module.storage.aws_ebs_volume.this"
 # cmd_finish's waits: 60 ticks x 10s = ~10 min each, which covers a Spot
 # capacity wait plus the on-boot CodeDeploy run.
 readonly WAIT_TICKS=60
@@ -98,11 +99,10 @@ volume_attr() {
 # $1 = desired capacity (also the floor, so the ASG cannot scale back on its
 # own mid-move).
 scale_asg() {
-  local asg
-  asg="$1"
-  log "Scaling $asg to $2..."
+  _scale_asg_asg="$1"
+  log "Scaling $_scale_asg_asg to $2..."
   aws autoscaling update-auto-scaling-group --region "$REGION" \
-    --auto-scaling-group-name "$asg" --min-size "$2" --desired-capacity "$2"
+    --auto-scaling-group-name "$_scale_asg_asg" --min-size "$2" --desired-capacity "$2"
 }
 
 # --- score -------------------------------------------------------------------
@@ -113,37 +113,37 @@ scale_asg() {
 # single source of truth: a baked-in copy here is exactly the kind of list that
 # drifts when the derived spec in modules/compute changes.
 score_types() {
-  local asg count i req types all
+  _score_types_types=""
   if [ -n "${INSTANCE_TYPES:-}" ]; then
     echo "$INSTANCE_TYPES"
     return 0
   fi
-  asg="$(tf_output asg_name)"
-  count="$(aws autoscaling describe-auto-scaling-groups --region "$REGION" \
-    --auto-scaling-group-names "$asg" \
+  _score_types_asg="$(tf_output asg_name)"
+  _score_types_count="$(aws autoscaling describe-auto-scaling-groups --region "$REGION" \
+    --auto-scaling-group-names "$_score_types_asg" \
     --query 'length(AutoScalingGroups[0].MixedInstancesPolicy.LaunchTemplate.Overrides)' \
     --output text)"
-  req="$(mktemp)"
-  all=""
-  i=0
-  while [ "$i" -lt "$count" ]; do
+  _score_types_req="$(mktemp)"
+  _score_types_all=""
+  _score_types_i=0
+  while [ "$_score_types_i" -lt "$_score_types_count" ]; do
     aws autoscaling describe-auto-scaling-groups --region "$REGION" \
-      --auto-scaling-group-names "$asg" \
-      --query "AutoScalingGroups[0].MixedInstancesPolicy.LaunchTemplate.Overrides[$i].InstanceRequirements" \
-      --output json >"$req"
-    types="$(aws ec2 get-instance-types-from-instance-requirements \
+      --auto-scaling-group-names "$_score_types_asg" \
+      --query "AutoScalingGroups[0].MixedInstancesPolicy.LaunchTemplate.Overrides[$_score_types_i].InstanceRequirements" \
+      --output json >"$_score_types_req"
+    _score_types_types="$(aws ec2 get-instance-types-from-instance-requirements \
       --region "$REGION" \
       --architecture-types arm64 x86_64 --virtualization-types hvm \
-      --instance-requirements "file://$req" \
+      --instance-requirements "file://$_score_types_req" \
       --query 'InstanceTypes[].InstanceType' --output text)"
-    all="$all $types"
-    i=$((i + 1))
+    _score_types_all="$_score_types_all $_score_types_types"
+    _score_types_i=$((_score_types_i + 1))
   done
-  rm -f "$req"
-  all="$(echo "$all" | tr -s ' \t' '\n' | sort -u | tr '\n' ' ')"
-  [ -n "$all" ] ||
-    die "no instance types resolved for ASG '$asg'; set INSTANCE_TYPES explicitly"
-  echo "$all"
+  rm -f "$_score_types_req"
+  _score_types_all="$(echo "$_score_types_all" | tr -s ' \t' '\n' | sort -u | tr '\n' ' ')"
+  [ -n "$_score_types_all" ] ||
+    die "no instance types resolved for ASG '$_score_types_asg'; set INSTANCE_TYPES explicitly"
+  echo "$_score_types_all"
 }
 
 # $1 = space-separated instance types. Word splitting is the interface here,
@@ -161,11 +161,10 @@ fetch_spot_scores() {
 # $1 = get-spot-placement-scores JSON. The API reports zone IDs, which are
 # per-account; map them back to the zone names the operator actually types.
 render_scores() {
-  local azmap
-  azmap="$(aws ec2 describe-availability-zones --region "$REGION" \
+  _render_scores_azmap="$(aws ec2 describe-availability-zones --region "$REGION" \
     --query 'AvailabilityZones[].{id:ZoneId,name:ZoneName}' --output json)"
   echo "AZ            SCORE"
-  echo "$1" | jq -r --argjson m "$azmap" '
+  echo "$1" | jq -r --argjson m "$_render_scores_azmap" '
     ($m | map({(.id): .name}) | add) as $names
     | .SpotPlacementScores
     | sort_by(-.Score)[]
@@ -173,26 +172,24 @@ render_scores() {
 }
 
 cmd_score() {
-  local types
-  types="$(score_types)"
+  _cmd_score_types="$(score_types)"
   log "Spot placement scores in $REGION (1-10, higher is better; account- and"
-  log "time-specific, NOT a guarantee). Instance types: $types"
-  render_scores "$(fetch_spot_scores "$types")"
+  log "time-specific, NOT a guarantee). Instance types: $_cmd_score_types"
+  render_scores "$(fetch_spot_scores "$_cmd_score_types")"
 }
 
 # --- prepare -----------------------------------------------------------------
 
 # snapshot_volume VOL DESCRIPTION -> snapshot id on stdout, once complete.
 snapshot_volume() {
-  local snap
   log "Creating snapshot of $1..."
-  snap="$(aws ec2 create-snapshot --region "$REGION" --volume-id "$1" \
+  _snapshot_volume_snap="$(aws ec2 create-snapshot --region "$REGION" --volume-id "$1" \
     --description "$2" \
     --tag-specifications "ResourceType=snapshot,Tags=[{Key=Project,Value=gramps-web},{Key=Name,Value=gramps-data-azmove}]" \
     --query 'SnapshotId' --output text)"
-  log "Snapshot $snap created; waiting for completion (may take several minutes)..."
-  aws ec2 wait snapshot-completed --region "$REGION" --snapshot-ids "$snap"
-  echo "$snap"
+  log "Snapshot $_snapshot_volume_snap created; waiting for completion (may take several minutes)..."
+  aws ec2 wait snapshot-completed --region "$REGION" --snapshot-ids "$_snapshot_volume_snap"
+  echo "$_snapshot_volume_snap"
 }
 
 # restore_volume SNAPSHOT AZ -> new volume id on stdout, once available.
@@ -200,40 +197,38 @@ snapshot_volume() {
 # that tag. Persistent=true drives nothing (AWS Backup selects the volume by
 # ARN) but is kept so the restored volume matches what modules/storage declares.
 restore_volume() {
-  local new_vol
   log "Creating gp3 volume from $1 in $2..."
-  new_vol="$(aws ec2 create-volume --region "$REGION" \
+  _restore_volume_new_vol="$(aws ec2 create-volume --region "$REGION" \
     --snapshot-id "$1" --availability-zone "$2" --volume-type gp3 \
     --tag-specifications "ResourceType=volume,Tags=[{Key=Project,Value=gramps-web},{Key=Persistent,Value=true},{Key=Name,Value=gramps-data}]" \
     --query 'VolumeId' --output text)"
-  aws ec2 wait volume-available --region "$REGION" --volume-ids "$new_vol"
-  echo "$new_vol"
+  aws ec2 wait volume-available --region "$REGION" --volume-ids "$_restore_volume_new_vol"
+  echo "$_restore_volume_new_vol"
 }
 
 cmd_prepare() {
-  local new_az asg vol cur_az snap new_vol
   [ "$#" -eq 1 ] || die "usage: $0 prepare <new-az>"
-  new_az="$1"
-  validate_az "$new_az"
+  _cmd_prepare_new_az="$1"
+  validate_az "$_cmd_prepare_new_az"
 
-  asg="$(tf_output asg_name)"
-  vol="$(tf_output ebs_volume_id)"
-  cur_az="$(volume_attr "$vol" AvailabilityZone)"
-  [ "$cur_az" != "$new_az" ] || die "volume $vol is already in $new_az"
+  _cmd_prepare_asg="$(tf_output asg_name)"
+  _cmd_prepare_vol="$(tf_output ebs_volume_id)"
+  _cmd_prepare_cur_az="$(volume_attr "$_cmd_prepare_vol" AvailabilityZone)"
+  [ "$_cmd_prepare_cur_az" != "$_cmd_prepare_new_az" ] || die "volume $_cmd_prepare_vol is already in $_cmd_prepare_new_az"
 
-  log "ASG=$asg  volume=$vol  move $cur_az -> $new_az"
-  confirm "Scale the ASG to 0 (THE SITE GOES DOWN), then snapshot and restore the volume into $new_az?"
+  log "ASG=$_cmd_prepare_asg  volume=$_cmd_prepare_vol  move $_cmd_prepare_cur_az -> $_cmd_prepare_new_az"
+  confirm "Scale the ASG to 0 (THE SITE GOES DOWN), then snapshot and restore the volume into $_cmd_prepare_new_az?"
 
-  scale_asg "$asg" 0
+  scale_asg "$_cmd_prepare_asg" 0
   log "Waiting for the data volume to detach (state: available)..."
-  aws ec2 wait volume-available --region "$REGION" --volume-ids "$vol"
+  aws ec2 wait volume-available --region "$REGION" --volume-ids "$_cmd_prepare_vol"
 
-  snap="$(snapshot_volume "$vol" "azmove $cur_az->$new_az $(date -u +%Y%m%d%H%M%S)")"
-  new_vol="$(restore_volume "$snap" "$new_az")"
+  _cmd_prepare_snap="$(snapshot_volume "$_cmd_prepare_vol" "azmove $_cmd_prepare_cur_az->$_cmd_prepare_new_az $(date -u +%Y%m%d%H%M%S)")"
+  _cmd_prepare_new_vol="$(restore_volume "$_cmd_prepare_snap" "$_cmd_prepare_new_az")"
 
-  log "New volume ready: $new_vol (in $new_az)"
-  log "Original volume $vol is untouched, in $cur_az."
-  log "Next: $0 adopt $new_vol $new_az"
+  log "New volume ready: $_cmd_prepare_new_vol (in $_cmd_prepare_new_az)"
+  log "Original volume $_cmd_prepare_vol is untouched, in $_cmd_prepare_cur_az."
+  log "Next: $0 --root $ROOT_DIR adopt $_cmd_prepare_new_vol $_cmd_prepare_new_az"
 }
 
 # --- rekey -------------------------------------------------------------------
@@ -244,51 +239,50 @@ cmd_prepare() {
 # (it crosses a key boundary), so it is slower than the incremental snapshot
 # before it -- minutes on a 20 GB volume.
 rekey_snapshot() {
-  local copy
   log "Copying snapshot $1, re-encrypted under $2..."
-  copy="$(aws ec2 copy-snapshot --region "$REGION" \
+  _rekey_snapshot_copy="$(aws ec2 copy-snapshot --region "$REGION" \
     --source-region "$REGION" --source-snapshot-id "$1" \
     --encrypted --kms-key-id "$2" \
     --description "rekey of $1" \
     --tag-specifications "ResourceType=snapshot,Tags=[{Key=Project,Value=gramps-web},{Key=Name,Value=gramps-data-rekey}]" \
     --query 'SnapshotId' --output text)"
-  log "Snapshot copy $copy created; waiting for completion (may take several minutes)..."
-  aws ec2 wait snapshot-completed --region "$REGION" --snapshot-ids "$copy"
-  echo "$copy"
+  log "Snapshot copy $_rekey_snapshot_copy created; waiting for completion (may take several minutes)..."
+  aws ec2 wait snapshot-completed --region "$REGION" --snapshot-ids "$_rekey_snapshot_copy"
+  echo "$_rekey_snapshot_copy"
 }
 
 cmd_rekey() {
-  local key asg vol cur_az cur_key snap copy new_vol
+  _cmd_rekey_key=""
   [ "$#" -le 1 ] || die "usage: $0 rekey [kms-key-id]"
-  key="${1:-}"
+  _cmd_rekey_key="${1:-}"
   # Default to the key the stack declares, so the common case cannot typo its
   # way onto a key the volume config does not name -- which would make the
   # post-adopt plan want to replace the volume it just adopted.
-  [ -n "$key" ] || key="$(tf_output ebs_kms_key_arn)"
+  [ -n "$_cmd_rekey_key" ] || _cmd_rekey_key="$(tf_output ebs_kms_key_arn)"
 
-  asg="$(tf_output asg_name)"
-  vol="$(tf_output ebs_volume_id)"
-  cur_az="$(volume_attr "$vol" AvailabilityZone)"
-  cur_key="$(volume_attr "$vol" KmsKeyId)"
-  [ "$cur_key" != "$key" ] ||
-    die "volume $vol is already encrypted under $key; nothing to do"
+  _cmd_rekey_asg="$(tf_output asg_name)"
+  _cmd_rekey_vol="$(tf_output ebs_volume_id)"
+  _cmd_rekey_cur_az="$(volume_attr "$_cmd_rekey_vol" AvailabilityZone)"
+  _cmd_rekey_cur_key="$(volume_attr "$_cmd_rekey_vol" KmsKeyId)"
+  [ "$_cmd_rekey_cur_key" != "$_cmd_rekey_key" ] ||
+    die "volume $_cmd_rekey_vol is already encrypted under $_cmd_rekey_key; nothing to do"
 
-  log "ASG=$asg  volume=$vol  AZ=$cur_az (unchanged by a re-key)"
-  log "  from key: $cur_key"
-  log "    to key: $key"
-  confirm "Scale the ASG to 0 (THE SITE GOES DOWN), then snapshot the volume and restore it re-encrypted in $cur_az?"
+  log "ASG=$_cmd_rekey_asg  volume=$_cmd_rekey_vol  AZ=$_cmd_rekey_cur_az (unchanged by a re-key)"
+  log "  from key: $_cmd_rekey_cur_key"
+  log "    to key: $_cmd_rekey_key"
+  confirm "Scale the ASG to 0 (THE SITE GOES DOWN), then snapshot the volume and restore it re-encrypted in $_cmd_rekey_cur_az?"
 
-  scale_asg "$asg" 0
+  scale_asg "$_cmd_rekey_asg" 0
   log "Waiting for the data volume to detach (state: available)..."
-  aws ec2 wait volume-available --region "$REGION" --volume-ids "$vol"
+  aws ec2 wait volume-available --region "$REGION" --volume-ids "$_cmd_rekey_vol"
 
-  snap="$(snapshot_volume "$vol" "rekey $(date -u +%Y%m%d%H%M%S)")"
-  copy="$(rekey_snapshot "$snap" "$key")"
-  new_vol="$(restore_volume "$copy" "$cur_az")"
+  _cmd_rekey_snap="$(snapshot_volume "$_cmd_rekey_vol" "rekey $(date -u +%Y%m%d%H%M%S)")"
+  _cmd_rekey_copy="$(rekey_snapshot "$_cmd_rekey_snap" "$_cmd_rekey_key")"
+  _cmd_rekey_new_vol="$(restore_volume "$_cmd_rekey_copy" "$_cmd_rekey_cur_az")"
 
-  log "New volume ready: $new_vol (in $cur_az, under $key)"
-  log "Original volume $vol is untouched, still on $cur_key -- it is your rollback."
-  log "Next: $0 adopt $new_vol $cur_az"
+  log "New volume ready: $_cmd_rekey_new_vol (in $_cmd_rekey_cur_az, under $_cmd_rekey_key)"
+  log "Original volume $_cmd_rekey_vol is untouched, still on $_cmd_rekey_cur_key -- it is your rollback."
+  log "Next: $0 --root $ROOT_DIR adopt $_cmd_rekey_new_vol $_cmd_rekey_cur_az"
 }
 
 # --- shrink ------------------------------------------------------------------
@@ -299,40 +293,39 @@ cmd_rekey() {
 # nonzero -- an abort or a mid-copy failure, where the live instance is still
 # the one serving and must come back up.
 cleanup_shrink() {
-  local status
-  status=$?
-  if [ "$SHRINK_APP_STOPPED" = 1 ] && [ "$status" != 0 ]; then
+  _cleanup_shrink_status=$?
+  if [ "$SHRINK_APP_STOPPED" = 1 ] && [ "$_cleanup_shrink_status" != 0 ]; then
     log "Shrink did not complete; bringing the app back up on $SHRINK_INSTANCE..."
     ssm_run "$SHRINK_INSTANCE" "gramps shrink: restart app" "$START_CMD" ||
       log "ERROR: restart failed. On the instance, run: $START_CMD"
   fi
-  exit "$status"
+  exit "$_cleanup_shrink_status"
 }
 
 # create_blank_volume SIZE_GB AZ KEY_ARN -> new blank gp3 volume id on stdout,
 # once available. KEY_ARN empty means aws/ebs -- mirrors modules/storage's own
 # `encrypted = true, kms_key_id = null` under backup.mode != cross_account.
 create_blank_volume() {
-  local size az key new_vol
-  size="$1"
-  az="$2"
-  key="$3"
-  log "Creating blank ${size}GiB gp3 volume in $az..."
-  if [ -n "$key" ]; then
-    new_vol="$(aws ec2 create-volume --region "$REGION" \
-      --availability-zone "$az" --volume-type gp3 --size "$size" \
-      --encrypted --kms-key-id "$key" \
+  _create_blank_volume_new_vol=""
+  _create_blank_volume_size="$1"
+  _create_blank_volume_az="$2"
+  _create_blank_volume_key="$3"
+  log "Creating blank ${_create_blank_volume_size}GiB gp3 volume in $_create_blank_volume_az..."
+  if [ -n "$_create_blank_volume_key" ]; then
+    _create_blank_volume_new_vol="$(aws ec2 create-volume --region "$REGION" \
+      --availability-zone "$_create_blank_volume_az" --volume-type gp3 --size "$_create_blank_volume_size" \
+      --encrypted --kms-key-id "$_create_blank_volume_key" \
       --tag-specifications "ResourceType=volume,Tags=[{Key=Project,Value=gramps-web},{Key=Persistent,Value=true},{Key=Name,Value=gramps-data}]" \
       --query 'VolumeId' --output text)"
   else
-    new_vol="$(aws ec2 create-volume --region "$REGION" \
-      --availability-zone "$az" --volume-type gp3 --size "$size" \
+    _create_blank_volume_new_vol="$(aws ec2 create-volume --region "$REGION" \
+      --availability-zone "$_create_blank_volume_az" --volume-type gp3 --size "$_create_blank_volume_size" \
       --encrypted \
       --tag-specifications "ResourceType=volume,Tags=[{Key=Project,Value=gramps-web},{Key=Persistent,Value=true},{Key=Name,Value=gramps-data}]" \
       --query 'VolumeId' --output text)"
   fi
-  aws ec2 wait volume-available --region "$REGION" --volume-ids "$new_vol"
-  echo "$new_vol"
+  aws ec2 wait volume-available --region "$REGION" --volume-ids "$_create_blank_volume_new_vol"
+  echo "$_create_blank_volume_new_vol"
 }
 
 # copy_script NEW_VOL_ID -> a shell script on stdout, to run on the instance
@@ -342,12 +335,11 @@ create_blank_volume() {
 # rsync the live tree across. GRAMPS_DATA_ROOT comes from instance.env rather
 # than being duplicated here.
 copy_script() {
-  local serial
-  serial="$(echo "$1" | tr -d '-')"
+  _copy_script_serial="$(echo "$1" | tr -d '-')"
   cat <<SH
 set -eu
 . /etc/gramps/instance.env
-serial_target="$serial"
+serial_target="$_copy_script_serial"
 dev=""
 i=0
 while [ "\$i" -lt 60 ]; do
@@ -374,34 +366,34 @@ SH
 }
 
 cmd_shrink() {
-  local size asg vol cur_az cur_size key snap new_vol
+  _cmd_shrink_size=""
   [ "$#" -eq 1 ] || die "usage: $0 shrink <size-gb>"
-  size="$1"
-  case "$size" in '' | *[!0-9]*) die "size-gb must be a positive integer" ;; esac
+  _cmd_shrink_size="$1"
+  case "$_cmd_shrink_size" in '' | *[!0-9]*) die "size-gb must be a positive integer" ;; esac
 
-  asg="$(tf_output asg_name)"
-  vol="$(tf_output ebs_volume_id)"
-  cur_az="$(volume_attr "$vol" AvailabilityZone)"
-  cur_size="$(volume_attr "$vol" Size)"
-  key="$(tf_output_opt ebs_kms_key_arn)"
-  [ "$size" -lt "$cur_size" ] ||
-    die "size-gb ($size) must be smaller than the live volume's size ($cur_size) -- EBS grows in place (ModifyVolume); this is only for shrinking"
+  _cmd_shrink_asg="$(tf_output asg_name)"
+  _cmd_shrink_vol="$(tf_output ebs_volume_id)"
+  _cmd_shrink_cur_az="$(volume_attr "$_cmd_shrink_vol" AvailabilityZone)"
+  _cmd_shrink_cur_size="$(volume_attr "$_cmd_shrink_vol" Size)"
+  _cmd_shrink_key="$(tf_output_opt ebs_kms_key_arn)"
+  [ "$_cmd_shrink_size" -lt "$_cmd_shrink_cur_size" ] ||
+    die "size-gb ($_cmd_shrink_size) must be smaller than the live volume's size ($_cmd_shrink_cur_size) -- EBS grows in place (ModifyVolume); this is only for shrinking"
 
-  SHRINK_INSTANCE="$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$vol" \
+  SHRINK_INSTANCE="$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$_cmd_shrink_vol" \
     --query 'Volumes[0].Attachments[0].InstanceId' --output text)"
-  [ "$SHRINK_INSTANCE" != "None" ] || die "$vol is not attached to a running instance"
+  [ "$SHRINK_INSTANCE" != "None" ] || die "$_cmd_shrink_vol is not attached to a running instance"
 
-  log "ASG=$asg  volume=$vol (${cur_size}GiB, $cur_az)  instance=$SHRINK_INSTANCE  target=${size}GiB"
-  confirm "Snapshot $vol as a fallback, attach a blank ${size}GiB volume to $SHRINK_INSTANCE, stop the app, copy the tree across, then scale the ASG to 0? (THE SITE GOES DOWN from the app stop through your apply + finish)"
+  log "ASG=$_cmd_shrink_asg  volume=$_cmd_shrink_vol (${_cmd_shrink_cur_size}GiB, $_cmd_shrink_cur_az)  instance=$SHRINK_INSTANCE  target=${_cmd_shrink_size}GiB"
+  confirm "Snapshot $_cmd_shrink_vol as a fallback, attach a blank ${_cmd_shrink_size}GiB volume to $SHRINK_INSTANCE, stop the app, copy the tree across, then scale the ASG to 0? (THE SITE GOES DOWN from the app stop through your apply + finish)"
 
-  snap="$(snapshot_volume "$vol" "shrink fallback $(date -u +%Y%m%d%H%M%S)")"
-  log "Fallback snapshot: $snap -- keep it a few days, then delete by hand."
+  _cmd_shrink_snap="$(snapshot_volume "$_cmd_shrink_vol" "shrink fallback $(date -u +%Y%m%d%H%M%S)")"
+  log "Fallback snapshot: $_cmd_shrink_snap -- keep it a few days, then delete by hand."
 
-  new_vol="$(create_blank_volume "$size" "$cur_az" "$key")"
-  log "Attaching $new_vol at $SHRINK_DEVICE on $SHRINK_INSTANCE..."
-  aws ec2 attach-volume --region "$REGION" --volume-id "$new_vol" \
+  _cmd_shrink_new_vol="$(create_blank_volume "$_cmd_shrink_size" "$_cmd_shrink_cur_az" "$_cmd_shrink_key")"
+  log "Attaching $_cmd_shrink_new_vol at $SHRINK_DEVICE on $SHRINK_INSTANCE..."
+  aws ec2 attach-volume --region "$REGION" --volume-id "$_cmd_shrink_new_vol" \
     --instance-id "$SHRINK_INSTANCE" --device "$SHRINK_DEVICE" >/dev/null
-  aws ec2 wait volume-in-use --region "$REGION" --volume-ids "$new_vol"
+  aws ec2 wait volume-in-use --region "$REGION" --volume-ids "$_cmd_shrink_new_vol"
 
   trap cleanup_shrink EXIT
   log "Stopping the app on $SHRINK_INSTANCE..."
@@ -409,21 +401,21 @@ cmd_shrink() {
   ssm_run "$SHRINK_INSTANCE" "gramps shrink: stop app" "$STOP_CMD" ||
     die "could not stop the app cleanly; not copying"
 
-  log "Formatting $new_vol and copying the tree onto it..."
-  ssm_run "$SHRINK_INSTANCE" "gramps shrink: copy tree" "$(copy_script "$new_vol")" ||
+  log "Formatting $_cmd_shrink_new_vol and copying the tree onto it..."
+  ssm_run "$SHRINK_INSTANCE" "gramps shrink: copy tree" "$(copy_script "$_cmd_shrink_new_vol")" ||
     die "copy failed; app left stopped -- rerun after fixing, or restart by hand: $START_CMD"
 
-  log "Detaching $new_vol from $SHRINK_INSTANCE..."
-  aws ec2 detach-volume --region "$REGION" --volume-id "$new_vol" >/dev/null
-  aws ec2 wait volume-available --region "$REGION" --volume-ids "$new_vol"
+  log "Detaching $_cmd_shrink_new_vol from $SHRINK_INSTANCE..."
+  aws ec2 detach-volume --region "$REGION" --volume-id "$_cmd_shrink_new_vol" >/dev/null
+  aws ec2 wait volume-available --region "$REGION" --volume-ids "$_cmd_shrink_new_vol"
 
-  log "Scaling $asg to 0 (the site's downtime, which started at the app stop above, continues through adopt/apply/finish)..."
-  scale_asg "$asg" 0
+  log "Scaling $_cmd_shrink_asg to 0 (the site's downtime, which started at the app stop above, continues through adopt/apply/finish)..."
+  scale_asg "$_cmd_shrink_asg" 0
   trap - EXIT
 
-  log "New volume ready: $new_vol (${size}GiB, $cur_az)"
-  log "Original volume $vol is untouched, still ${cur_size}GiB -- your rollback, plus snapshot $snap."
-  log "Next: $0 adopt $new_vol $cur_az"
+  log "New volume ready: $_cmd_shrink_new_vol (${_cmd_shrink_size}GiB, $_cmd_shrink_cur_az)"
+  log "Original volume $_cmd_shrink_vol is untouched, still ${_cmd_shrink_cur_size}GiB -- your rollback, plus snapshot $_cmd_shrink_snap."
+  log "Next: $0 --root $ROOT_DIR adopt $_cmd_shrink_new_vol $_cmd_shrink_cur_az"
 }
 
 # --- adopt -------------------------------------------------------------------
@@ -431,89 +423,75 @@ cmd_shrink() {
 # Refuse to adopt a volume that is in the wrong AZ or that the instance role
 # could not attach; both are silent-failure-at-boot otherwise.
 verify_new_volume() {
-  local v_az proj
-  v_az="$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$1" \
+  _verify_new_volume_v_az="$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$1" \
     --query 'Volumes[0].AvailabilityZone' --output text)" ||
     die "volume $1 not found"
-  [ "$v_az" = "$2" ] || die "$1 is in $v_az, not $2"
+  [ "$_verify_new_volume_v_az" = "$2" ] || die "$1 is in $_verify_new_volume_v_az, not $2"
 
-  proj="$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$1" \
+  _verify_new_volume_proj="$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$1" \
     --query "Volumes[0].Tags[?Key=='Project']|[0].Value" --output text)"
-  [ "$proj" = "gramps-web" ] ||
+  [ "$_verify_new_volume_proj" = "gramps-web" ] ||
     die "$1 lacks tag Project=gramps-web; the instance role cannot attach it"
 }
 
-# -> backup path on stdout.
+# -> backup path on stdout; the file lands in the current directory.
 backup_state() {
-  local backup
-  backup="$SCRIPT_DIR/azmove-state-$(date -u +%Y%m%d%H%M%S).json"
-  log "Backing up Terraform state to $backup..."
-  tf state pull >"$backup"
-  echo "$backup"
+  _backup_state_backup="azmove-state-$(date -u +%Y%m%d%H%M%S).json"
+  log "Backing up Terraform state to $_backup_state_backup..."
+  (umask 077 && tf state pull >"$_backup_state_backup")
+  echo "$_backup_state_backup"
 }
 
-# Point $VOL_RESOURCE at the restored volume without letting Terraform touch
-# either AWS resource: rm leaves the old volume intact, import adopts the new.
+# Point the volume's state address at the restored volume without letting
+# Terraform touch either AWS resource: rm leaves the old volume intact, import
+# adopts the new. $1 = state address, $2 = new volume id.
 swap_volume_in_state() {
   log "Removing old volume from state (the AWS resource is left intact)..."
-  tf state rm "$VOL_RESOURCE"
-  log "Importing $1 as $VOL_RESOURCE..."
-  tf import -var-file="$TFVARS" "$VOL_RESOURCE" "$1"
-}
-
-set_tfvars_az() {
-  local tmp
-  if grep -Eq '^[[:space:]]*az[[:space:]]*=' "$TFVARS"; then
-    log "Updating az in $TFVARS..."
-    tmp="$(mktemp)"
-    sed -E "s|^([[:space:]]*az[[:space:]]*=).*|\\1 \"$1\"|" "$TFVARS" >"$tmp"
-    mv "$tmp" "$TFVARS"
-  else
-    log "Adding az to $TFVARS..."
-    printf '\naz = "%s"\n' "$1" >>"$TFVARS"
-  fi
+  tf state rm "$1"
+  log "Importing $2 as $1..."
+  tf import "$1" "$2"
 }
 
 cmd_adopt() {
-  local new_vol new_az backup
   [ "$#" -eq 2 ] || die "usage: $0 adopt <new-vol-id> <new-az>"
-  new_vol="$1"
-  new_az="$2"
-  validate_az "$new_az"
-  verify_new_volume "$new_vol" "$new_az"
+  _cmd_adopt_new_vol="$1"
+  _cmd_adopt_new_az="$2"
+  validate_az "$_cmd_adopt_new_az"
+  verify_new_volume "$_cmd_adopt_new_vol" "$_cmd_adopt_new_az"
 
-  backup="$(backup_state)"
-  confirm "Swap $VOL_RESOURCE in state to $new_vol? (state surgery; backup at $backup)"
-  swap_volume_in_state "$new_vol"
-  set_tfvars_az "$new_az"
+  _cmd_adopt_address="$(state_address "$VOL_RESOURCE_SUFFIX")"
+  _cmd_adopt_backup="$(backup_state)"
+  confirm "Swap $_cmd_adopt_address in state to $_cmd_adopt_new_vol? (state surgery; backup at $_cmd_adopt_backup)"
+  swap_volume_in_state "$_cmd_adopt_address" "$_cmd_adopt_new_vol"
 
-  log "State and tfvars updated. NOW DO THIS BY HAND:"
-  log "  1) scripts/tf.sh $ENV plan"
+  log "State updated. NOW DO THIS BY HAND:"
+  log "  1) Set az = \"$_cmd_adopt_new_az\" on the module in your root (a re-key leaves az as is)."
+  log "  2) terraform plan in $ROOT_DIR"
   log "     Verify: the data volume is a NO-OP (NOT destroyed); the launch"
   log "     template and AttachVolume IAM policy update to the new volume ARN."
   log "     After an AZ move the public subnet is also replaced (empty, safe);"
   log "     after a re-key nothing else should move at all."
   log "     If the volume shows destroy or replace, STOP."
-  log "  2) scripts/tf.sh $ENV apply"
-  log "  3) $0 finish [https://your-site/]"
+  log "  3) terraform apply in $ROOT_DIR"
+  log "  4) $0 --root $ROOT_DIR finish [https://your-site/]"
 }
 
 # --- finish ------------------------------------------------------------------
 
 wait_for_inservice() {
-  local state i
+  _wait_for_inservice_state=""
   log "Waiting for an InService instance (up to ~10 min)..."
-  i=0
-  while [ "$i" -lt "$WAIT_TICKS" ]; do
-    state="$(aws autoscaling describe-auto-scaling-groups --region "$REGION" \
+  _wait_for_inservice_i=0
+  while [ "$_wait_for_inservice_i" -lt "$WAIT_TICKS" ]; do
+    _wait_for_inservice_state="$(aws autoscaling describe-auto-scaling-groups --region "$REGION" \
       --auto-scaling-group-names "$1" \
       --query 'AutoScalingGroups[0].Instances[0].LifecycleState' \
       --output text 2>/dev/null || echo None)"
-    if [ "$state" = "InService" ]; then
+    if [ "$_wait_for_inservice_state" = "InService" ]; then
       log "Instance InService."
       return 0
     fi
-    i=$((i + 1))
+    _wait_for_inservice_i=$((_wait_for_inservice_i + 1))
     sleep "$WAIT_SECONDS"
   done
   die "no InService instance after timeout; check the ASG"
@@ -522,32 +500,30 @@ wait_for_inservice() {
 # Exhausting the poll is a failure, not a pass: an InService instance whose
 # deploy failed still serves nothing.
 wait_for_healthy() {
-  local code i
   log "Polling $1 (CodeDeploy runs on boot; allow a few minutes)..."
-  code=000
-  i=0
-  while [ "$i" -lt "$WAIT_TICKS" ]; do
-    code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 "$1" || echo 000)"
-    case "$code" in
+  _wait_for_healthy_code=000
+  _wait_for_healthy_i=0
+  while [ "$_wait_for_healthy_i" -lt "$WAIT_TICKS" ]; do
+    _wait_for_healthy_code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 "$1" || echo 000)"
+    case "$_wait_for_healthy_code" in
     2[0-9][0-9] | 3[0-9][0-9])
-      log "Healthy (HTTP $code)."
+      log "Healthy (HTTP $_wait_for_healthy_code)."
       return 0
       ;;
     esac
-    i=$((i + 1))
+    _wait_for_healthy_i=$((_wait_for_healthy_i + 1))
     sleep "$WAIT_SECONDS"
   done
-  die "no healthy response from $1 after ~10 min (last: HTTP $code); the instance is InService but the deploy may have failed -- check CodeDeploy"
+  die "no healthy response from $1 after ~10 min (last: HTTP $_wait_for_healthy_code); the instance is InService but the deploy may have failed -- check CodeDeploy"
 }
 
 cmd_finish() {
-  local url asg
-  url="${1:-}"
-  asg="$(tf_output asg_name)"
+  _cmd_finish_url="${1:-}"
+  _cmd_finish_asg="$(tf_output asg_name)"
 
-  scale_asg "$asg" 1
-  wait_for_inservice "$asg"
-  [ -z "$url" ] || wait_for_healthy "$url"
+  scale_asg "$_cmd_finish_asg" 1
+  wait_for_inservice "$_cmd_finish_asg"
+  [ -z "$_cmd_finish_url" ] || wait_for_healthy "$_cmd_finish_url"
 
   log "Move complete. Remaining MANUAL steps:"
   log "  - Verify the site loads and the tree data is intact."
@@ -559,19 +535,22 @@ cmd_finish() {
 # --- dispatch ----------------------------------------------------------------
 
 main() {
-  local cmd
   require aws terraform jq curl
+  ! wants_usage "$@" || usage
+  select_root "$@"
+  shift "$ROOT_SHIFT"
+  init_root
   [ "$#" -ge 1 ] || usage
-  cmd="$1"
+  _main_cmd="$1"
   shift
-  case "$cmd" in
+  case "$_main_cmd" in
   score) cmd_score "$@" ;;
   prepare) cmd_prepare "$@" ;;
   rekey) cmd_rekey "$@" ;;
   shrink) cmd_shrink "$@" ;;
   adopt) cmd_adopt "$@" ;;
   finish) cmd_finish "$@" ;;
-  *) die "unknown subcommand '$cmd' (expected: score|prepare|rekey|shrink|adopt|finish)" ;;
+  *) die "unknown subcommand '$_main_cmd' (expected: score|prepare|rekey|shrink|adopt|finish)" ;;
   esac
 }
 

@@ -7,7 +7,7 @@
 # conditional.
 #
 # Fires on gramps-rightsize-watchdog.timer; the schedule comes from
-# rightsize_schedule in tfvars via a user-data drop-in, from daily (the
+# rightsize.schedule via a user-data drop-in, from daily (the
 # default) down to hourly. Spot instances only: On-Demand has no allocation
 # to re-run. It resolves the ASG's own instance requirements to the eligible
 # types and compares current Spot prices in this instance's AZ: if the
@@ -67,66 +67,64 @@ load_env() {
 # pointless daily replacement. An unreadable IMDS also says no (the safe
 # direction: no churn, retry next tick).
 is_spot() {
-  local lifecycle
-  lifecycle="$(imds instance-life-cycle)" || lifecycle=""
-  [ "$lifecycle" = "spot" ]
+  _is_spot_lifecycle="$(imds instance-life-cycle)" || _is_spot_lifecycle=""
+  [ "$_is_spot_lifecycle" = "spot" ]
 }
 
 # Union of the types every ASG override's InstanceRequirements resolves to,
 # space-separated. The requirements pass unchanged from
 # describe-auto-scaling-groups to get-instance-types-from-instance-requirements.
 eligible_types() {
-  local count i req types all
-  count="$(aws autoscaling describe-auto-scaling-groups --region "$REGION" \
+  _eligible_types_types=""
+  _eligible_types_count="$(aws autoscaling describe-auto-scaling-groups --region "$REGION" \
     --auto-scaling-group-names "$ASG_NAME" \
     --query 'length(AutoScalingGroups[0].MixedInstancesPolicy.LaunchTemplate.Overrides)' \
     --output text)" || return 1
-  req="$(mktemp)"
-  all=""
-  i=0
-  while [ "$i" -lt "$count" ]; do
+  _eligible_types_req="$(mktemp)"
+  _eligible_types_all=""
+  _eligible_types_i=0
+  while [ "$_eligible_types_i" -lt "$_eligible_types_count" ]; do
     aws autoscaling describe-auto-scaling-groups --region "$REGION" \
       --auto-scaling-group-names "$ASG_NAME" \
-      --query "AutoScalingGroups[0].MixedInstancesPolicy.LaunchTemplate.Overrides[$i].InstanceRequirements" \
-      --output json >"$req" || {
-      rm -f "$req"
+      --query "AutoScalingGroups[0].MixedInstancesPolicy.LaunchTemplate.Overrides[$_eligible_types_i].InstanceRequirements" \
+      --output json >"$_eligible_types_req" || {
+      rm -f "$_eligible_types_req"
       return 1
     }
-    types="$(aws ec2 get-instance-types-from-instance-requirements \
+    _eligible_types_types="$(aws ec2 get-instance-types-from-instance-requirements \
       --region "$REGION" \
       --architecture-types arm64 x86_64 --virtualization-types hvm \
-      --instance-requirements "file://$req" \
+      --instance-requirements "file://$_eligible_types_req" \
       --query 'InstanceTypes[].InstanceType' --output text)" || {
-      rm -f "$req"
+      rm -f "$_eligible_types_req"
       return 1
     }
-    all="$all $types"
-    i=$((i + 1))
+    _eligible_types_all="$_eligible_types_all $_eligible_types_types"
+    _eligible_types_i=$((_eligible_types_i + 1))
   done
-  rm -f "$req"
-  echo "$all" | tr -s ' \t' '\n' | sort -u | tr '\n' ' '
+  rm -f "$_eligible_types_req"
+  echo "$_eligible_types_all" | tr -s ' \t' '\n' | sort -u | tr '\n' ' '
 }
 
 # $1 = own instance type, $2 = AZ. Succeeds when the cheapest eligible Spot
 # pool in the AZ costs at most PRICE_MARGIN of the own type's price. Any
 # failure or missing price says no (stay).
 cheaper_pool_exists() {
-  local types prices verdict
-  types="$(eligible_types)" || {
+  _cheaper_pool_exists_types="$(eligible_types)" || {
     log "Could not resolve the eligible types; staying."
     return 1
   }
-  [ -n "$types" ] || return 1
+  [ -n "$_cheaper_pool_exists_types" ] || return 1
   # shellcheck disable=SC2086
-  prices="$(aws ec2 describe-spot-price-history --region "$REGION" \
+  _cheaper_pool_exists_prices="$(aws ec2 describe-spot-price-history --region "$REGION" \
     --availability-zone "$2" --start-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --product-descriptions "Linux/UNIX" --instance-types $types \
+    --product-descriptions "Linux/UNIX" --instance-types $_cheaper_pool_exists_types \
     --query 'SpotPriceHistory[].[InstanceType,SpotPrice]' \
     --output text)" || {
     log "Could not read Spot prices; staying."
     return 1
   }
-  verdict="$(echo "$prices" | awk -v own="$1" -v margin="$PRICE_MARGIN" '
+  _cheaper_pool_exists_verdict="$(echo "$_cheaper_pool_exists_prices" | awk -v own="$1" -v margin="$PRICE_MARGIN" '
     NF == 2 {
       if ($1 == own) own_price = $2
       if (min_price == "" || $2 + 0 < min_price + 0) { min_price = $2; min_type = $1 }
@@ -136,8 +134,8 @@ cheaper_pool_exists() {
       printf "own=%s cheapest=%s(%s) ", own_price, min_type, min_price
       print (min_price + 0 <= own_price * margin) ? "replace" : "stay"
     }')"
-  log "$1 in $2: $verdict"
-  case "$verdict" in
+  log "$1 in $2: $_cheaper_pool_exists_verdict"
+  case "$_cheaper_pool_exists_verdict" in
   *replace) return 0 ;;
   esac
   return 1
@@ -146,13 +144,12 @@ cheaper_pool_exists() {
 # Churn bound. /proc/uptime's first field is seconds with a fractional part;
 # strip it for POSIX arithmetic.
 uptime_ok() {
-  local min_uptime_h min_uptime_s uptime_s
-  min_uptime_h="${RIGHTSIZE_MIN_UPTIME_HOURS:-3}"
-  min_uptime_s=$((min_uptime_h * 3600))
-  read -r uptime_s _ </proc/uptime
-  uptime_s="${uptime_s%.*}"
-  [ "$uptime_s" -ge "$min_uptime_s" ] && return 0
-  log "A cheaper pool exists for $1, but uptime (${uptime_s}s) is under the ${min_uptime_h}h cooldown; retrying next tick."
+  _uptime_ok_min_uptime_h="${RIGHTSIZE_MIN_UPTIME_HOURS:-3}"
+  _uptime_ok_min_uptime_s=$((_uptime_ok_min_uptime_h * 3600))
+  read -r _uptime_ok_uptime_s _ </proc/uptime
+  _uptime_ok_uptime_s="${_uptime_ok_uptime_s%.*}"
+  [ "$_uptime_ok_uptime_s" -ge "$_uptime_ok_min_uptime_s" ] && return 0
+  log "A cheaper pool exists for $1, but uptime (${_uptime_ok_uptime_s}s) is under the ${_uptime_ok_min_uptime_h}h cooldown; retrying next tick."
   return 1
 }
 
@@ -169,9 +166,8 @@ drain() {
 }
 
 replace_instance() {
-  local instance_id
-  instance_id="$(imds instance-id)"
-  log "A cheaper pool exists for $1; replacing $instance_id."
+  _replace_instance_instance_id="$(imds instance-id)"
+  log "A cheaper pool exists for $1; replacing $_replace_instance_instance_id."
   drain
   # LAST_RIGHTSIZE_PARAM comes from instance.env (terraform's compute module
   # owns the parameter; see watchdog_markers.tf); set_unhealthy writes it
@@ -182,18 +178,17 @@ replace_instance() {
 }
 
 main() {
-  local current_type az
   load_env
 
   TOKEN="$(imds_token)"
   readonly TOKEN
 
   is_spot || exit 0
-  current_type="$(imds instance-type)"
-  az="$(imds placement/availability-zone)" || exit 0
-  cheaper_pool_exists "$current_type" "$az" || exit 0
-  uptime_ok "$current_type" || exit 0
-  replace_instance "$current_type"
+  _main_current_type="$(imds instance-type)"
+  _main_az="$(imds placement/availability-zone)" || exit 0
+  cheaper_pool_exists "$_main_current_type" "$_main_az" || exit 0
+  uptime_ok "$_main_current_type" || exit 0
+  replace_instance "$_main_current_type"
 }
 
 main "$@"

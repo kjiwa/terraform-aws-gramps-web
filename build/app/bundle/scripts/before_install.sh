@@ -22,15 +22,14 @@ readonly INFRA_TIMEOUT=600
 readonly DOCKER_TIMEOUT=60
 
 wait_for_infra() {
-  local i
   log "Waiting for boot glue ($INSTANCE_ENV)..."
-  i=0
-  while [ "$i" -lt "$INFRA_TIMEOUT" ]; do
+  _wait_for_infra_i=0
+  while [ "$_wait_for_infra_i" -lt "$INFRA_TIMEOUT" ]; do
     [ -f "$INSTANCE_ENV" ] && {
       log "Boot glue ready."
       return 0
     }
-    i=$((i + 1))
+    _wait_for_infra_i=$((_wait_for_infra_i + 1))
     sleep 1
   done
   log "ERROR: $INSTANCE_ENV not present after ${INFRA_TIMEOUT}s"
@@ -38,15 +37,14 @@ wait_for_infra() {
 }
 
 wait_for_docker() {
-  local i
   log "Waiting for Docker daemon..."
-  i=0
-  while [ "$i" -lt "$DOCKER_TIMEOUT" ]; do
+  _wait_for_docker_i=0
+  while [ "$_wait_for_docker_i" -lt "$DOCKER_TIMEOUT" ]; do
     docker info >/dev/null 2>&1 && {
       log "Docker ready."
       return 0
     }
-    i=$((i + 1))
+    _wait_for_docker_i=$((_wait_for_docker_i + 1))
     sleep 1
   done
   log "ERROR: Docker not ready after ${DOCKER_TIMEOUT}s"
@@ -58,16 +56,15 @@ wait_for_docker() {
 # after_install.sh with a bare exit 254. --with-decryption also covers KMS
 # decrypt on the two SecureStrings, not just parameter existence.
 preflight_ssm() {
-  local invalid names
   log "Checking SSM parameters..."
-  names="$SSM_RUNTIME_PARAM $SSM_FLASK_SECRET_PARAM $SSM_SMTP_PASSWORD_PARAM $SSM_FRONTEND_CONFIG_PARAM"
+  _preflight_ssm_names="$SSM_RUNTIME_PARAM $SSM_FLASK_SECRET_PARAM $SSM_SMTP_PASSWORD_PARAM $SSM_FRONTEND_CONFIG_PARAM"
   # shellcheck disable=SC2086 # word splitting is the interface: --names takes one per word.
-  invalid="$(aws ssm get-parameters --with-decryption \
-    --names $names \
+  _preflight_ssm_invalid="$(aws ssm get-parameters --with-decryption \
+    --names $_preflight_ssm_names \
     --region "$REGION" \
     --query 'InvalidParameters' --output text)"
-  if [ -n "$invalid" ] && [ "$invalid" != "None" ]; then
-    log "ERROR: SSM parameters missing or undecryptable: $invalid"
+  if [ -n "$_preflight_ssm_invalid" ] && [ "$_preflight_ssm_invalid" != "None" ]; then
+    log "ERROR: SSM parameters missing or undecryptable: $_preflight_ssm_invalid"
     exit 1
   fi
 }

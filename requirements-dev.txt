@@ -1,6 +1,6 @@
 # Dev/test-only dependencies for the two Lambda test suites
-# (terraform/modules/status/lambda/test_status.py,
-# terraform/modules/monitoring/lambda/test_availability.py). Not shipped:
+# (modules/status/lambda/test_status.py,
+# modules/monitoring/lambda/test_availability.py). Not shipped:
 # both Lambdas depend on nothing beyond boto3, which is provided by the
 # Lambda runtime itself, so this file never becomes a deploy-time input.
 pytest==9.1.1

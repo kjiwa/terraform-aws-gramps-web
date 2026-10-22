@@ -45,7 +45,7 @@ rootStyle.setProperty('--gw-secondary', secondary);
 rootStyle.setProperty('--gw-on-secondary', onColor(secondary));
 
 /**
- * terraform/modules/edge's aws_s3_object.status_config writes `_status/
+ * modules/edge's aws_s3_object.status_config writes `_status/
  * config.js` as `window.gwConfig = {disabledPanels: [...]}`, loaded via a
  * plain parser-blocking `<script src="/_status/config.js">` before this
  * bundle -- see status.css's data-disabled-panels rules, which this

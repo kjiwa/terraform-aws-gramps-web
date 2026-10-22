@@ -43,7 +43,6 @@ image_ref() {
 # here on, not just secrets.env below -- it also applies to app.env and
 # config.js, written later in this function and by render_frontend_config.
 write_env_file() {
-  local flask_secret smtp_password
   mkdir -p "$COMPOSE_DIR"
   umask 077
 
@@ -59,7 +58,7 @@ write_env_file() {
   } >"$COMPOSE_DIR/.env"
 
   # Non-secret GRAMPSWEB_* config, authored as ready-to-use KEY=value lines in
-  # SSM (terraform/modules/compute/ssm.tf's gramps_env parameter, named by
+  # SSM (modules/compute/ssm.tf's gramps_env parameter, named by
   # $SSM_RUNTIME_PARAM in instance.env). Fetched verbatim, no parsing on this
   # end.
   log "Rendering $COMPOSE_DIR/app.env..."
@@ -69,11 +68,11 @@ write_env_file() {
   # directly under upstream's own names -- never stored in a plain SSM String
   # or in git.
   log "Rendering $COMPOSE_DIR/secrets.env..."
-  flask_secret="$(ssm_value "$SSM_FLASK_SECRET_PARAM")"
-  smtp_password="$(ssm_value "$SSM_SMTP_PASSWORD_PARAM")"
+  _write_env_file_flask_secret="$(ssm_value "$SSM_FLASK_SECRET_PARAM")"
+  _write_env_file_smtp_password="$(ssm_value "$SSM_SMTP_PASSWORD_PARAM")"
   {
-    printf 'GRAMPSWEB_SECRET_KEY=%s\n' "$flask_secret"
-    printf 'GRAMPSWEB_EMAIL_HOST_PASSWORD=%s\n' "$smtp_password"
+    printf 'GRAMPSWEB_SECRET_KEY=%s\n' "$_write_env_file_flask_secret"
+    printf 'GRAMPSWEB_EMAIL_HOST_PASSWORD=%s\n' "$_write_env_file_smtp_password"
   } >"$COMPOSE_DIR/secrets.env"
 }
 
@@ -81,13 +80,12 @@ write_env_file() {
 # other registry (e.g. a GHCR fallback), which pulls anonymously. The registry
 # host is everything before the first '/' in the image reference.
 ecr_login() {
-  local registry
-  registry=${1%%/*}
-  case "$registry" in
+  _ecr_login_registry=${1%%/*}
+  case "$_ecr_login_registry" in
   *.dkr.ecr.*.amazonaws.com)
-    log "Authenticating to ECR registry ${registry}..."
+    log "Authenticating to ECR registry ${_ecr_login_registry}..."
     aws ecr get-login-password --region "$REGION" |
-      docker login --username AWS --password-stdin "$registry"
+      docker login --username AWS --password-stdin "$_ecr_login_registry"
     ;;
   esac
 }
@@ -115,25 +113,23 @@ render_frontend_config() {
 # rename the tree of anyone following api.tree_id's own documented advice to
 # point at an existing directory.
 bootstrap_tree_metadata() {
-  local tree_id tree_dir
-  tree_id="$(sed -n 's/^GRAMPSWEB_TREE_ID="\(.*\)"$/\1/p' "$COMPOSE_DIR/app.env")"
-  [ -n "$tree_id" ] || return 0
-  tree_dir="$GRAMPS_DATA_ROOT/db/$tree_id"
-  [ -d "$tree_dir" ] && return 0
-  log "Bootstrapping sqlite tree metadata at $tree_dir..."
-  mkdir -p "$tree_dir"
-  printf '%s' "$tree_id" >"$tree_dir/name.txt"
-  printf 'sqlite' >"$tree_dir/database.txt"
+  _bootstrap_tree_metadata_tree_id="$(sed -n 's/^GRAMPSWEB_TREE_ID="\(.*\)"$/\1/p' "$COMPOSE_DIR/app.env")"
+  [ -n "$_bootstrap_tree_metadata_tree_id" ] || return 0
+  _bootstrap_tree_metadata_tree_dir="$GRAMPS_DATA_ROOT/db/$_bootstrap_tree_metadata_tree_id"
+  [ -d "$_bootstrap_tree_metadata_tree_dir" ] && return 0
+  log "Bootstrapping sqlite tree metadata at $_bootstrap_tree_metadata_tree_dir..."
+  mkdir -p "$_bootstrap_tree_metadata_tree_dir"
+  printf '%s' "$_bootstrap_tree_metadata_tree_id" >"$_bootstrap_tree_metadata_tree_dir/name.txt"
+  printf 'sqlite' >"$_bootstrap_tree_metadata_tree_dir/database.txt"
 }
 
 main() {
-  local image
   load_instance_env
-  image="$(image_ref)"
-  write_env_file "$image"
+  _main_image="$(image_ref)"
+  write_env_file "$_main_image"
   bootstrap_tree_metadata
   render_frontend_config
-  pull_image "$image"
+  pull_image "$_main_image"
 }
 
 main "$@"

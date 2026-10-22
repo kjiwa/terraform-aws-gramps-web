@@ -40,10 +40,10 @@ variable "gramps_web_version" {
 locals {
   # Name is the stable tag every base AMI carries; both arches share it (the
   # architecture attribute disambiguates) and scripts/clean-amis.sh selects on
-  # it. The deployed AMI is pinned per arch in tfvars (ami_ids), not
+  # it. The deployed AMI is pinned per arch (ami_ids), not
   # discovered. git_sha records the commit the build ran from (empty:
   # untracked manual build). source_ami/source_ami_name are provenance for the
-  # status page's image panel (terraform/modules/status): which upstream
+  # status page's image panel (modules/status): which upstream
   # AL2023 AMI this build started from. Packer template engine syntax
   # (resolved by Packer itself, not Terraform), left literal.
   gramps_ami_tags = {
@@ -111,7 +111,7 @@ source "amazon-ebs" "gramps" {
   instance_type = local.builder_instance_types.arm64
 
   # ECR read for the grampsweb pull below; scoped to the gramps-web repo, see
-  # terraform/modules/ami-build/iam.tf. Only present once module.ami_build has
+  # modules/ami-build/iam.tf. Only present once module.ami_build has
   # applied, so a workstation build with no ECR repo yet (install.sh's pull is
   # already conditional for this) omits the profile instead of failing to find it.
   iam_instance_profile = var.ecr_repo_url != "" ? "gramps-web-ami-builder" : null

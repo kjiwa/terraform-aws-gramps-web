@@ -3,7 +3,7 @@ version: 0.2
 # Builds the first-party frontend (build/web) and publishes it, then
 # invalidates the primary CloudFront distribution. The build logic lives in
 # build/web/publish.sh beside this file; the CodeBuild project injects every
-# input from tfvars (SITE_TITLE, ERRORS_BUCKET_NAME, STATUS_BUCKET_NAME,
+# input from the module variables (SITE_TITLE, ERRORS_BUCKET_NAME, STATUS_BUCKET_NAME,
 # DISTRIBUTION_ID) so the script needs no terraform.
 #
 # The command below is relative to the CodeBuild source root, not to this
@@ -20,7 +20,7 @@ phases:
       - sh build/web/publish.sh
 
 # npm's content-addressed tarball cache, backed by the project's S3 cache
-# bucket -- see terraform/modules/web-build/main.tf's cache bucket.
+# bucket -- see modules/web-build/main.tf's cache bucket.
 cache:
   paths:
     - /root/.npm/**/*

@@ -517,10 +517,7 @@ function buildStorage(rootVolumeId: string): GETStatusDataResponse['storage'] {
   };
 }
 
-// The pipeline's own source repo (terraform/config/stack/prod/terraform.tfvars'
-// repo_url), not a synthetic value -- already public elsewhere in this repo,
-// and using the real owner/repo is what makes the fixture's commit links
-// resolve to real GitHub URLs rather than a fake placeholder.
+// A fixed owner/repo, so the fixture's commit links are stable.
 const SOURCE_REPO = 'example/gramps-web';
 
 function buildDeployment(): GETStatusDataResponse['deployment'] {

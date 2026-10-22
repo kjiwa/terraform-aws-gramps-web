@@ -5,7 +5,7 @@
 # as an escape hatch. Idempotent; safe to re-run.
 #
 # All inputs arrive as environment variables (the CodeBuild project injects
-# them from tfvars); nothing is read from Terraform state.
+# them from the module variables); nothing is read from Terraform state.
 #   ERRORS_BUCKET_NAME  error-pages S3 bucket (required)
 #   STATUS_BUCKET_NAME  status page shell's S3 bucket (optional; unset when
 #                        status.enabled = false, in which case the publish
@@ -34,8 +34,8 @@ REPO_ROOT=$(
 )
 readonly LOG_PREFIX SCRIPT_DIR REPO_ROOT
 
-# shellcheck source=../../scripts/common.sh
-. "$REPO_ROOT/scripts/common.sh"
+# shellcheck source=../../scripts/keel/common.sh
+. "$REPO_ROOT/scripts/keel/common.sh"
 
 build() {
   log "npm ci ..."
@@ -67,14 +67,14 @@ publish_status() {
 }
 
 invalidate_cdn() {
-  paths="/_errors/*"
+  _invalidate_cdn_paths="/_errors/*"
   if [ -n "${STATUS_BUCKET_NAME:-}" ]; then
-    paths="$paths /_status /_status/"
+    _invalidate_cdn_paths="$_invalidate_cdn_paths /_status /_status/"
   fi
-  log "invalidating $paths on $DISTRIBUTION_ID ..."
-  # shellcheck disable=SC2086 # paths is an intentional word-split list
+  log "invalidating $_invalidate_cdn_paths on $DISTRIBUTION_ID ..."
+  # shellcheck disable=SC2086 # the paths list is an intentional word-split list
   aws cloudfront create-invalidation \
-    --distribution-id "$DISTRIBUTION_ID" --paths $paths >/dev/null
+    --distribution-id "$DISTRIBUTION_ID" --paths $_invalidate_cdn_paths >/dev/null
 }
 
 main() {

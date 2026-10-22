@@ -33,21 +33,21 @@ readonly TIMEOUT=240
 # failing ValidateService over a CDN cache quirk would be a worse outcome
 # than a day of stale static assets.
 invalidate_cache() {
-  local distribution_id
+  _invalidate_cache_distribution_id=""
   if [ -z "${CLOUDFRONT_DISTRIBUTION_ID_PARAM:-}" ]; then
     log "CLOUDFRONT_DISTRIBUTION_ID_PARAM not in $INSTANCE_ENV; skipping cache invalidation."
     return 0
   fi
-  if ! distribution_id="$(aws ssm get-parameter \
+  if ! _invalidate_cache_distribution_id="$(aws ssm get-parameter \
     --name "$CLOUDFRONT_DISTRIBUTION_ID_PARAM" \
     --query 'Parameter.Value' --output text \
     --region "$REGION" 2>&1)"; then
-    log "Could not read $CLOUDFRONT_DISTRIBUTION_ID_PARAM ($distribution_id); skipping cache invalidation."
+    log "Could not read $CLOUDFRONT_DISTRIBUTION_ID_PARAM ($_invalidate_cache_distribution_id); skipping cache invalidation."
     return 0
   fi
-  log "Invalidating CloudFront cache ($distribution_id) for static assets..."
+  log "Invalidating CloudFront cache ($_invalidate_cache_distribution_id) for static assets..."
   if ! aws cloudfront create-invalidation \
-    --distribution-id "$distribution_id" \
+    --distribution-id "$_invalidate_cache_distribution_id" \
     --paths '/global.css' '/fonts/*' '/images/*' '/webawesome-styles/*' '/manifest.json' \
     >/dev/null; then
     log "CloudFront invalidation failed; stale static assets may persist briefly."
@@ -55,18 +55,18 @@ invalidate_cache() {
 }
 
 main() {
-  local deadline code
+  _main_code=""
   load_instance_env
   log "Validating $URL (up to ${TIMEOUT}s)..."
   # Wall-clock deadline, not a sleep count: each failing curl can add up to
   # 5s on top of the sleep, and overshooting the appspec hook timeout (300s)
   # gets the script killed before it can report and dump `compose ps`.
-  deadline=$(($(date +%s) + TIMEOUT))
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 "$URL" || echo 000)"
-    case "$code" in
+  _main_deadline=$(($(date +%s) + TIMEOUT))
+  while [ "$(date +%s)" -lt "$_main_deadline" ]; do
+    _main_code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 "$URL" || echo 000)"
+    case "$_main_code" in
     2[0-9][0-9] | 3[0-9][0-9])
-      log "Healthy (HTTP $code)."
+      log "Healthy (HTTP $_main_code)."
       invalidate_cache
       return 0
       ;;

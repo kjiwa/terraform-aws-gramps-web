@@ -35,10 +35,9 @@ imds_instance_id() {
 # load_env and before publish_host_metrics, and never in the health-check
 # path itself.
 load_runtime_env() {
-  local now stamp_mtime
-  now="$(date +%s)"
-  stamp_mtime="$(stat -c%Y "$RUNTIME_STAMP" 2>/dev/null || echo 0)"
-  if [ "$((now - stamp_mtime))" -ge 300 ]; then
+  _load_runtime_env_now="$(date +%s)"
+  _load_runtime_env_stamp_mtime="$(stat -c%Y "$RUNTIME_STAMP" 2>/dev/null || echo 0)"
+  if [ "$((_load_runtime_env_now - _load_runtime_env_stamp_mtime))" -ge 300 ]; then
     if aws ssm get-parameter \
       --name "$SSM_INSTANCE_RUNTIME_PARAM" \
       --query 'Parameter.Value' --output text \
@@ -84,26 +83,26 @@ detach_data_volume() {
 # passes none, since classify_cause() already checks spot-reclaim ahead of
 # health-watchdog and a marker here would misattribute a real reclaim.
 set_unhealthy() {
-  local marker_param token instance_id marker_time
-  marker_param="${1:-}"
-  token="$(imds_token)"
-  instance_id="$(imds_instance_id "$token")"
+  _set_unhealthy_marker_time=""
+  _set_unhealthy_marker_param="${1:-}"
+  _set_unhealthy_token="$(imds_token)"
+  _set_unhealthy_instance_id="$(imds_instance_id "$_set_unhealthy_token")"
 
-  if [ -n "$marker_param" ]; then
-    marker_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if [ -n "$_set_unhealthy_marker_param" ]; then
+    _set_unhealthy_marker_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     if ! aws ssm put-parameter \
-      --name "$marker_param" \
-      --value "{\"time\":\"$marker_time\",\"instance_id\":\"$instance_id\"}" \
+      --name "$_set_unhealthy_marker_param" \
+      --value "{\"time\":\"$_set_unhealthy_marker_time\",\"instance_id\":\"$_set_unhealthy_instance_id\"}" \
       --type String \
       --overwrite \
       --region "$REGION"; then
-      log "Failed to write marker to $marker_param; continuing anyway."
+      log "Failed to write marker to $_set_unhealthy_marker_param; continuing anyway."
     fi
   fi
 
-  log "Marking $instance_id Unhealthy in the ASG..."
+  log "Marking $_set_unhealthy_instance_id Unhealthy in the ASG..."
   aws autoscaling set-instance-health \
-    --instance-id "$instance_id" \
+    --instance-id "$_set_unhealthy_instance_id" \
     --health-status Unhealthy \
     --region "$REGION"
 }

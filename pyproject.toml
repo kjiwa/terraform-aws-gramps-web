@@ -1,7 +1,7 @@
 [tool.pytest.ini_options]
 testpaths = [
-  "terraform/modules/status/lambda",
-  "terraform/modules/monitoring/lambda",
+  "modules/status/lambda",
+  "modules/monitoring/lambda",
 ]
 
 [tool.ruff]
