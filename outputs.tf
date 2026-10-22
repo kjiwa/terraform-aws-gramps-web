@@ -54,7 +54,7 @@ output "codeconnections_arn" {
 }
 
 output "gramps_pipeline_name" {
-  description = "App CodePipeline name. Triggered by scripts/deploy.sh gramps."
+  description = "App CodePipeline name. Run by scripts/deploy.sh gramps, which names it as a constant."
   value       = module.app_pipeline.pipeline_name
 }
 

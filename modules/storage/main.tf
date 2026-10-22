@@ -46,24 +46,21 @@ data "aws_iam_policy_document" "data_key" {
   # GenerateDataKeyPair and GenerateDataKeyPairWithoutPlaintext, which are
   # asymmetric-keypair operations that cannot occur in a snapshot copy. Access
   # Analyzer reports the expanded set, which is how the over-grant surfaced.
-  dynamic "statement" {
-    for_each = local.backup_cross_account ? [1] : []
-    content {
-      sid    = "BackupAccountCopySnapshot"
-      effect = "Allow"
-      actions = [
-        "kms:Decrypt",
-        "kms:DescribeKey",
-        "kms:ReEncryptFrom",
-        "kms:ReEncryptTo",
-        "kms:GenerateDataKey",
-        "kms:GenerateDataKeyWithoutPlaintext",
-      ]
-      resources = ["*"]
-      principals {
-        type        = "AWS"
-        identifiers = ["arn:aws:iam::${var.backup.account_id}:root"]
-      }
+  statement {
+    sid    = "BackupAccountCopySnapshot"
+    effect = "Allow"
+    actions = [
+      "kms:Decrypt",
+      "kms:DescribeKey",
+      "kms:ReEncryptFrom",
+      "kms:ReEncryptTo",
+      "kms:GenerateDataKey",
+      "kms:GenerateDataKeyWithoutPlaintext",
+    ]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${var.backup.account_id}:root"]
     }
   }
 
@@ -71,22 +68,19 @@ data "aws_iam_policy_document" "data_key" {
   # creates grants on the caller's behalf to run a copy job. GrantIsForAWSResource
   # confines it to grants AWS services create for themselves, so it is not usable
   # as a general-purpose escalation.
-  dynamic "statement" {
-    for_each = local.backup_cross_account ? [1] : []
-    content {
-      sid       = "BackupAccountCreateGrant"
-      effect    = "Allow"
-      actions   = ["kms:CreateGrant"]
-      resources = ["*"]
-      principals {
-        type        = "AWS"
-        identifiers = ["arn:aws:iam::${var.backup.account_id}:root"]
-      }
-      condition {
-        test     = "Bool"
-        variable = "kms:GrantIsForAWSResource"
-        values   = ["true"]
-      }
+  statement {
+    sid       = "BackupAccountCreateGrant"
+    effect    = "Allow"
+    actions   = ["kms:CreateGrant"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${var.backup.account_id}:root"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "kms:GrantIsForAWSResource"
+      values   = ["true"]
     }
   }
 }
@@ -108,11 +102,6 @@ resource "aws_kms_alias" "data" {
   count         = local.backup_cross_account ? 1 : 0
   name          = "alias/gramps-data"
   target_key_id = aws_kms_key.data[0].key_id
-}
-
-moved {
-  from = aws_ebs_volume.this[0]
-  to   = aws_ebs_volume.this
 }
 
 resource "aws_ebs_volume" "this" {

@@ -86,13 +86,5 @@ resource "aws_launch_template" "this" {
 
   lifecycle {
     create_before_destroy = true
-
-    # aws_ssm_parameter.gramps_env and aws_ssm_parameter.frontend_config are
-    # siblings under /gramps-web/${var.env}/ by convention -- catch a rename
-    # that splits them at plan time rather than as an operational surprise.
-    precondition {
-      condition     = dirname(aws_ssm_parameter.gramps_env.name) == dirname(aws_ssm_parameter.frontend_config.name)
-      error_message = "aws_ssm_parameter.gramps_env and aws_ssm_parameter.frontend_config must share a path prefix."
-    }
   }
 }

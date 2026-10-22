@@ -1,8 +1,3 @@
-output "subnet_id" {
-  description = "Public subnet ID."
-  value       = aws_subnet.public.id
-}
-
 output "subnet_ids" {
   description = "Public subnet IDs the ASG launches into."
   value       = [aws_subnet.public.id]
