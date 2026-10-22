@@ -51,14 +51,13 @@ attach_volume() {
 # NVMe controller serial (the volume ID with dashes stripped) to find ours.
 # Echoes the device path; returns nonzero when it has not appeared yet.
 find_block_device() {
-  local serial_target ctrl dev
-  serial_target="$(echo "$EBS_VOLUME_ID" | tr -d '-')"
-  for ctrl in /sys/class/nvme/nvme*; do
-    [ -r "$ctrl/serial" ] || continue
-    if [ "$(tr -d ' ' <"$ctrl/serial")" = "$serial_target" ]; then
-      dev="/dev/$(basename "$ctrl")n1"
-      if [ -b "$dev" ]; then
-        echo "$dev"
+  _find_serial_target="$(echo "$EBS_VOLUME_ID" | tr -d '-')"
+  for _find_ctrl in /sys/class/nvme/nvme*; do
+    [ -r "$_find_ctrl/serial" ] || continue
+    if [ "$(tr -d ' ' <"$_find_ctrl/serial")" = "$_find_serial_target" ]; then
+      _find_dev="/dev/$(basename "$_find_ctrl")n1"
+      if [ -b "$_find_dev" ]; then
+        echo "$_find_dev"
         return 0
       fi
     fi
@@ -67,14 +66,13 @@ find_block_device() {
 }
 
 wait_for_block_device() {
-  local dev i
-  i=0
-  while [ "$i" -lt 60 ]; do
-    if dev="$(find_block_device)"; then
-      echo "$dev"
+  _wait_i=0
+  while [ "$_wait_i" -lt 60 ]; do
+    if _wait_dev="$(find_block_device)"; then
+      echo "$_wait_dev"
       return 0
     fi
-    i=$((i + 1))
+    _wait_i=$((_wait_i + 1))
     sleep 1
   done
   log "ERROR: block device for $EBS_VOLUME_ID did not appear within 60s"
@@ -95,11 +93,10 @@ format_if_needed() {
 # mode -- the CodeDeploy BeforeInstall hook is what refuses to deploy onto an
 # unmounted root.
 ensure_mounted() {
-  local uuid
   mkdir -p "$GRAMPS_DATA_ROOT"
-  uuid="$(blkid -s UUID -o value "$1")"
-  if ! grep -q "$uuid" /etc/fstab; then
-    echo "UUID=$uuid $GRAMPS_DATA_ROOT ext4 defaults,nofail 0 2" >>/etc/fstab
+  _ensure_uuid="$(blkid -s UUID -o value "$1")"
+  if ! grep -q "$_ensure_uuid" /etc/fstab; then
+    echo "UUID=$_ensure_uuid $GRAMPS_DATA_ROOT ext4 defaults,nofail 0 2" >>/etc/fstab
   fi
   mount -a
 }
@@ -116,11 +113,10 @@ create_data_dirs() {
 }
 
 mount_data_volume() {
-  local block_dev
-  block_dev="$(wait_for_block_device)"
-  log "Block device: $block_dev"
-  format_if_needed "$block_dev"
-  ensure_mounted "$block_dev"
+  _mount_block_dev="$(wait_for_block_device)"
+  log "Block device: $_mount_block_dev"
+  format_if_needed "$_mount_block_dev"
+  ensure_mounted "$_mount_block_dev"
   create_data_dirs
   log "EBS mounted at $GRAMPS_DATA_ROOT"
 }
@@ -146,28 +142,27 @@ setup_swap() {
 }
 
 # The AMI bakes gramps-rightsize-watchdog.timer with a default hour; the env's
-# tfvars (rightsize_schedule) choose the real one via a drop-in, which keeps
+# rightsize_schedule variable chooses the real one via a drop-in, which keeps
 # the unit file itself env-agnostic. Two guards, both deliberate soft-fails: an
 # AMI predating the timer has nothing to override, and an invalid expression
 # must not brick the boot -- serving the site outranks the rightsize hour, and
 # the timer retries on the AMI default. An empty schedule (rightsize_schedule =
 # null) turns the timer off instead.
 configure_rightsize_timer() {
-  local unit dropin
-  unit="gramps-rightsize-watchdog.timer"
-  dropin="/etc/systemd/system/$unit.d/schedule.conf"
+  _rightsize_unit="gramps-rightsize-watchdog.timer"
+  _rightsize_dropin="/etc/systemd/system/$_rightsize_unit.d/schedule.conf"
 
   if [ -z "$RIGHTSIZE_SCHEDULE" ]; then
-    if systemctl disable --now "$unit" >/dev/null 2>&1; then
-      log "rightsize disabled; stopped $unit"
+    if systemctl disable --now "$_rightsize_unit" >/dev/null 2>&1; then
+      log "rightsize disabled; stopped $_rightsize_unit"
     else
-      log "rightsize disabled; no $unit to stop"
+      log "rightsize disabled; no $_rightsize_unit to stop"
     fi
     return 0
   fi
 
-  if [ ! -f "/etc/systemd/system/$unit" ]; then
-    log "no $unit on this AMI; skipping schedule override"
+  if [ ! -f "/etc/systemd/system/$_rightsize_unit" ]; then
+    log "no $_rightsize_unit on this AMI; skipping schedule override"
     return 0
   fi
   if ! systemd-analyze calendar "$RIGHTSIZE_SCHEDULE" >/dev/null 2>&1; then
@@ -176,16 +171,16 @@ configure_rightsize_timer() {
   fi
 
   log "Scheduling rightsize timer: $RIGHTSIZE_SCHEDULE"
-  mkdir -p "$(dirname "$dropin")"
+  mkdir -p "$(dirname "$_rightsize_dropin")"
   # The empty OnCalendar clears the AMI default before setting the override.
-  cat >"$dropin" <<CONF
+  cat >"$_rightsize_dropin" <<CONF
 # Written by user-data from var.rightsize.schedule.
 [Timer]
 OnCalendar=
 OnCalendar=$RIGHTSIZE_SCHEDULE
 CONF
   systemctl daemon-reload
-  systemctl restart "$unit"
+  systemctl restart "$_rightsize_unit"
 }
 
 write_instance_env() {

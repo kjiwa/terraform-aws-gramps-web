@@ -12,10 +12,10 @@ readonly REPO="$TESTS_DIR/../.."
 # shellcheck source=lib.sh
 . "$TESTS_DIR/lib.sh"
 
-# Operator scripts and build scripts; the vendored keel copy and the tests
-# themselves are out of scope.
+# Operator scripts, build scripts and the instance user-data template; the
+# vendored keel copy and the tests themselves are out of scope.
 sources() {
-  find "$REPO/scripts" "$REPO/build" -name '*.sh' \
+  find "$REPO/scripts" "$REPO/build" "$REPO/modules" \( -name '*.sh' -o -name '*.sh.tftpl' \) \
     -not -path '*/node_modules/*' -not -path "$REPO/scripts/keel/*" \
     -not -path "$REPO/scripts/tests/*"
 }
