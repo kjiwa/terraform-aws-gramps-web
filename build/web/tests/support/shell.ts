@@ -52,8 +52,8 @@ export const ALL_TOGGLES_OFF: Toggles = {
 };
 
 /**
- * The four toggles that gate a `[data-panel]` section -- status.py:232-240's
- * exact list. public_reliability is deliberately absent: it changes
+ * The four toggles that gate a `[data-panel]` section -- collect_status()'s
+ * branch toggles. public_reliability is deliberately absent: it changes
  * route availability, not which panel markup the static skeleton hides.
  */
 export const PANEL_TOGGLE_KEYS = ['backups', 'assistant', 'cost', 'host_metrics'] as const;

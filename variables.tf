@@ -205,9 +205,8 @@ variable "dmarc_rua" {
 }
 
 variable "repo_url" {
-  description = "HTTPS GitHub clone URL of the repo the builds pull build/ and scripts/ from (string). Point at a fork to change them."
+  description = "HTTPS GitHub clone URL of the repo the builds pull build/ and scripts/ from (string). Required: your fork, since the CodeConnections app installs only on accounts you control."
   type        = string
-  default     = "https://github.com/kjiwa/terraform-aws-gramps-web"
   validation {
     condition     = can(regex("^https://github\\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", var.repo_url))
     error_message = "repo_url must be an HTTPS GitHub clone URL (https://github.com/owner/repo[.git]) because the pipeline's owner/repo is derived from it."
@@ -217,7 +216,6 @@ variable "repo_url" {
 variable "source_branch" {
   description = "Branch of repo_url the builds pull (string). CodePipeline sources a branch, never a tag, so use the release-<major>.<minor> branch matching the module ref. Builds run its build/ and scripts/ with deploy permissions."
   type        = string
-  default     = "main"
 }
 
 variable "gramps" {

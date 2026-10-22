@@ -4,7 +4,7 @@ A Terraform module that runs [Gramps Web](https://www.grampsweb.org/), the web a
 
 The module serves one shape: a single instance with the database on SQLite on an EBS volume and media in S3. The instance is Spot or On-Demand, behind CloudFront, and backs up locally, to a second region, or to a second AWS account. Optional parts are an AI chat assistant on Amazon Bedrock and an operational [status page](docs/status-page.md). Gramps Web supports a single API replica, so there is no multi-instance mode.
 
-Required inputs are `primary_domain` and `alert_email`. Everything else has a default; the [module reference](#module-reference) lists them with their costs.
+Required inputs are `primary_domain`, `alert_email`, `repo_url`, and `source_branch`. Everything else has a default; the [module reference](#module-reference) lists them with their costs.
 
 ![Public status page](docs/images/status-light.png)
 
@@ -41,7 +41,7 @@ The availability Lambda probes the site every minute and records outages and the
 
 ## Cost
 
-Real figures from one small production deployment, offered as an example and not a promise: a single Spot instance of about 4 GiB (module defaults are On-Demand, `spot.enabled` false), chat enabled, the status page on, and AWS Backup, in us-east-1, for one full month. Unblended cost by service from AWS Cost Explorer, in USD, including tax.
+Real figures from one small production deployment, offered as an example and not a promise: a single Spot instance of about 4 GiB (module defaults are On-Demand, `spot.enabled` false), chat enabled, the status page on, and AWS Backup, in us-east-1, for one full month. Unblended cost by service from AWS Cost Explorer, in USD. The total includes the Tax row.
 
 | Service | Sep 2026 |
 |---|---:|
@@ -100,8 +100,9 @@ CodePipeline and CodeBuild pull `build/` and `scripts/` from `repo_url` on `sour
 
 ```hcl
 module "gramps_web" {
-  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v0.9.3"
-  source_branch = "release-0.9"
+  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.0.0"
+  repo_url      = "https://github.com/<you>/terraform-aws-gramps-web"
+  source_branch = "release-1.0"
   # ...
 }
 ```
@@ -137,7 +138,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
    terraform init
    terraform apply -target=module.gramps_web.aws_codeconnections_connection.github \
      -var primary_domain=example.org -var alert_email=you@example.org \
-     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-0.9
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.0
    ```
 
 4. Approve it: in the console, open Developer Tools, Settings, Connections, update the pending `gramps-web` connection, and install the GitHub app on your fork.
@@ -146,7 +147,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
    ```sh
    terraform apply -var primary_domain=example.org -var alert_email=you@example.org \
-     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-0.9
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.0
    ```
 
    The first apply in a new account can fail while the Auto Scaling group launches its first instance ("Authentication Failure"); re-running the apply succeeded in testing. The status page at `/_status` is off by default: set `status = { enabled = true }` on the module after raising the account's Lambda concurrency quota (see the `status` input).
@@ -224,6 +225,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Licensed 
 | ---- | ----------- | ---- | ------- | :------: |
 | alert\_email | Address that receives site DOWN/RECOVERED notices and Spot interruption alerts (string). Confirm the SNS subscription email after the first apply. | `string` | n/a | yes |
 | primary\_domain | Canonical apex domain (string). Every other entry in domains, and every www. host, 301s to it. Its Route 53 hosted zone must already exist. | `string` | n/a | yes |
+| repo\_url | HTTPS GitHub clone URL of the repo the builds pull build/ and scripts/ from (string). Required: your fork, since the CodeConnections app installs only on accounts you control. | `string` | n/a | yes |
+| source\_branch | Branch of repo\_url the builds pull (string). CodePipeline sources a branch, never a tag, so use the release-<major>.<minor> branch matching the module ref. Builds run its build/ and scripts/ with deploy permissions. | `string` | n/a | yes |
 | active | Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, and EBS still bill (about 10 to 15 USD per month); waking takes about five minutes. | `bool` | `true` | no |
 | additional\_cache\_behaviors | Extra ordered cache behaviors on the primary distribution (list of objects) that route paths to additional\_origins. See modules/edge/variables.tf for the shape and the paths that must not be overlapped. | ```list(object({ path_pattern = string target_origin_id = string allowed_methods = optional(list(string), ["GET", "HEAD"]) cache_policy_id = optional(string, "658327ea-f89d-4fab-a63d-7e88639e58f6") origin_request_policy_id = optional(string) function_associations = optional(list(object({ event_type = string function_arn = string })), []) }))``` | `[]` | no |
 | additional\_origins | Extra CloudFront origins on the primary distribution (map of origin ID to object), for serving content beside the app. See modules/edge/variables.tf for the shape. | ```map(object({ domain_name = string origin_access_control_id = optional(string) }))``` | `{}` | no |
@@ -243,10 +246,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Licensed 
 | llm | AI chat assistant on Bedrock (object); off unless enabled, and billed per token when on. model\_id is the Bedrock model or inference-profile ID without the bedrock: prefix; region is the invocation region (empty for the module's region). max\_requests, max\_tokens and max\_context\_length bound each chat run; system\_prompt overrides the agent prompt. hourly\_token\_alarm is the token count per hour that alarms to alert\_email, 0 to disable. | ```object({ enabled = optional(bool, false) model_id = optional(string, "us.anthropic.claude-haiku-4-5-20251001-v1:0") region = optional(string, "") max_requests = optional(number, 15) max_tokens = optional(number, 200000) max_context_length = optional(number, 50000) system_prompt = optional(string, "") hourly_token_alarm = optional(number, 3000000) })``` | `{}` | no |
 | media\_bucket\_name | S3 bucket name for media (string, globally unique), or empty to derive gramps-web-media-<account-id>. | `string` | `""` | no |
 | monthly\_budget\_usd | Monthly budget in USD (number) that the status page cost panel compares spend against. Set the alerting budget itself in keel's finops module. | `number` | `50` | no |
-| repo\_url | HTTPS GitHub clone URL of the repo the builds pull build/ and scripts/ from (string). Point at a fork to change them. | `string` | `"https://github.com/kjiwa/terraform-aws-gramps-web"` | no |
 | rightsize | Scale-back to the cheapest Spot pool (object); off unless schedule is set. schedule is a systemd OnCalendar expression, optionally with a timezone suffix, and applies on the next instance replacement. min\_uptime\_hours is the churn bound between forced replacements. | ```object({ schedule = optional(string) min_uptime_hours = optional(number, 3) })``` | `{}` | no |
 | site\_title | Site name shown on error pages (string), or empty to use primary\_domain. | `string` | `""` | no |
-| source\_branch | Branch of repo\_url the builds pull (string). CodePipeline sources a branch, never a tag, so use the release-<major>.<minor> branch matching the module ref. Builds run its build/ and scripts/ with deploy permissions. | `string` | `"main"` | no |
 | spot | Spot capacity (object). enabled runs Spot only at a fraction of the On-Demand price, and each reclaim costs an outage of a few minutes plus an alert email. allocation\_strategy is price-capacity-optimized, capacity-optimized or lowest-price; rightsize needs lowest-price. | ```object({ enabled = optional(bool, false) allocation_strategy = optional(string, "price-capacity-optimized") })``` | `{}` | no |
 | status | Operational status page at /\_status (object); off unless enabled. min\_role is the lowest Gramps Web role that may view it (nobody locks it). host\_metrics adds disk and memory panels and a disk alarm, billed per custom metric and alarm per month. volume\_metrics adds exact byte metrics, needs host\_metrics and a base-AMI rebuild. cost adds a Cost Explorer panel at 0.01 USD per call on a Lambda cold start. public\_reliability serves redacted uptime history at /\_status/public and cannot combine with min\_role nobody. The status Lambda reserves 10 concurrent executions and Lambda keeps 100 unreserved, so the account's Lambda concurrency quota must be at least 110; new accounts often start at 10, so request an increase first. | ```object({ enabled = optional(bool, false) min_role = optional(string, "owner") host_metrics = optional(bool, false) volume_metrics = optional(bool, false) cost = optional(bool, false) public_reliability = optional(bool, false) })``` | `{}` | no |
 

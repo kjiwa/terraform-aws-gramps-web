@@ -7,7 +7,7 @@ locals {
 }
 
 module "dns" {
-  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/dns?ref=v0.1.0"
+  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/dns?ref=v0.1.1"
   providers = {
     aws           = aws
     aws.us_east_1 = aws.us_east_1
@@ -18,7 +18,7 @@ module "dns" {
 }
 
 module "finops" {
-  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/finops?ref=v0.1.0"
+  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/finops?ref=v0.1.1"
   providers = {
     aws = aws.us_east_1
   }
@@ -46,7 +46,7 @@ module "gramps_web" {
 }
 
 module "audit" {
-  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/audit?ref=v0.1.0"
+  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/audit?ref=v0.1.1"
 
   name_prefix        = "gramps-web"
   alert_email        = var.alert_email

@@ -2005,7 +2005,7 @@ def assistant(now=None, keys=None):
     # period_s=86400 in CHART_RANGES and so share one GetMetricData call,
     # sized to the longest of the three (1y, 365 cells), rather than issuing
     # three identical ones -- see reliability()'s query_cache for the same
-    # idiom (status.py:545-552).
+    # idiom.
     query_cache = {}
 
     def query(period_s):
@@ -2211,7 +2211,7 @@ def host_metrics(now=None, keys=None):
     period_s -- 30d/90d/1y all name period_s=86400 in CHART_RANGES and so
     share one GetMetricData call, sized to the longest of the three (1y, 365
     cells), rather than issuing three identical ones (see reliability()'s
-    query_cache for the same idiom, status.py:545-552) -- for 3 calls total
+    query_cache for the same idiom) -- for 3 calls total
     instead of 5.
 
     Each metric comes back as {"current": <newest value or None>, "ranges":
@@ -2281,7 +2281,7 @@ def host_metrics(now=None, keys=None):
             )
             # StartTime above is floored to period_s, so CloudWatch's own
             # flooring of StartTime to the nearest multiple of Period (same
-            # behavior reliability()'s query() comment at status.py:511-520
+            # behavior reliability()'s query() comment
             # documents) is a no-op here too -- this is the same class of
             # bug fixed in d95f93d (unaligned StartTime vs. an
             # exact-timestamp join), applied to this panel.

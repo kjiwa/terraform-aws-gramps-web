@@ -3,10 +3,10 @@
  * fixture (tests/fixtures/status-data-full.json), mirroring the three
  * server-side transforms that turn that same full panel set into what a
  * real caller actually receives:
- *  - payloadFor(): collect_status()'s branch list (status.py:428-442) --
+ *  - payloadFor(): collect_status()'s branch list --
  *    a disabled panel's key is absent, not null or {}.
  *  - publicPayload(): public_response()'s redaction allowlist
- *    (status.py:469-544) -- reliability verbatim, incidents trimmed to
+ *    in status.py -- reliability verbatim, incidents trimmed to
  *    started/duration_s/cause/planned.
  *  - degradedPayload(): safe_section()'s own failure shape
  *    ({"error": ...}), for the panels a test wants to force into that
