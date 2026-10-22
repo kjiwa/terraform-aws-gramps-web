@@ -4,11 +4,6 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
-### Fixed
-
-- The data volume and the Elastic IP carry `Project = "gramps-web"` explicitly. The instance IAM policy conditions on that tag, so a root without provider `default_tags` no longer hangs at boot.
-- `scripts/hygiene.sh` skips binary files instead of printing a `sed` error on them.
-
 ### Added
 
 - `docs/teardown.md`, and an `audit_log_retention_days` input in `examples/minimal` so a trial can be torn down.
@@ -23,6 +18,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - The unused `instance_role_arn` input of `modules/compute`.
 - The unused `scripts/keel/tf.sh`.
 - Unused outputs of the network, app-pipeline, and web-build modules.
+
+### Fixed
+
+- The data volume and the Elastic IP carry `Project = "gramps-web"` explicitly. The instance IAM policy conditions on that tag, so a root without provider `default_tags` no longer hangs at boot.
+- `scripts/hygiene.sh` skips binary files instead of printing a `sed` error on them.
 
 ## [0.9.2] - 2026-10-21
 

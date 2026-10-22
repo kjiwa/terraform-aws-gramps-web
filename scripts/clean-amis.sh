@@ -10,10 +10,11 @@
 #
 #   - the newest AMI per architecture (what an unpinned ami_ids follows),
 #   - any AMI referenced by a current gramps-web launch template version or a
-#     running/pending gramps-web instance (this is what protects the pinned or
-#     currently deployed AMI once newer builds exist, so a rollback by pinning
-#     reaches only AMIs kept here; a root snapshot must never be pulled out from under a live instance
-#     or a template the ASG could still launch from).
+#     running/pending gramps-web instance (this protects the pinned or
+#     currently deployed AMI once newer builds exist; a root snapshot must
+#     never be pulled out from under a live instance or a template the ASG
+#     could still launch from). A rollback by pinning reaches only AMIs kept
+#     here.
 #
 # Any failure while building the keep set aborts before anything is deleted:
 # a lost API call must not silently shrink the set of protected AMIs.

@@ -87,5 +87,12 @@ resource "aws_launch_template" "this" {
 
   lifecycle {
     create_before_destroy = true
+
+    # gramps_env and frontend_config are siblings under one SSM path prefix;
+    # catch a rename that splits them at plan time, not at boot.
+    precondition {
+      condition     = dirname(aws_ssm_parameter.gramps_env.name) == dirname(aws_ssm_parameter.frontend_config.name)
+      error_message = "aws_ssm_parameter.gramps_env and aws_ssm_parameter.frontend_config must share a path prefix."
+    }
   }
 }

@@ -92,7 +92,7 @@ The deploy builds the image from the upstream release plus your addons, pushes i
 
 ## Sleeping the site
 
-`active = false` stops the instance and the canary alarms and keeps all data. Public IPv4, KMS keys, the Route 53 zone, ECR, and EBS keep billing, about ten dollars a month on the table's figures (the zone and some KMS keys belong to keel in the example). Setting it back to `true` and applying wakes the site in about five minutes.
+`active = false` stops the instance and the canary alarms and keeps all data. Public IPv4, KMS keys, the Route 53 zone, ECR, and EBS keep billing, about ten to fifteen dollars a month on the table's figures (the zone and some KMS keys belong to keel in the example). Setting it back to `true` and applying wakes the site in about five minutes.
 
 ## Release branches
 
@@ -224,7 +224,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Licensed 
 | ---- | ----------- | ---- | ------- | :------: |
 | alert\_email | Address that receives site DOWN/RECOVERED notices and Spot interruption alerts (string). Confirm the SNS subscription email after the first apply. | `string` | n/a | yes |
 | primary\_domain | Canonical apex domain (string). Every other entry in domains, and every www. host, 301s to it. Its Route 53 hosted zone must already exist. | `string` | n/a | yes |
-| active | Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, and EBS still bill (about 10 USD per month); waking takes about five minutes. | `bool` | `true` | no |
+| active | Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, and EBS still bill (about 10 to 15 USD per month); waking takes about five minutes. | `bool` | `true` | no |
 | additional\_cache\_behaviors | Extra ordered cache behaviors on the primary distribution (list of objects) that route paths to additional\_origins. See modules/edge/variables.tf for the shape and the paths that must not be overlapped. | ```list(object({ path_pattern = string target_origin_id = string allowed_methods = optional(list(string), ["GET", "HEAD"]) cache_policy_id = optional(string, "658327ea-f89d-4fab-a63d-7e88639e58f6") origin_request_policy_id = optional(string) function_associations = optional(list(object({ event_type = string function_arn = string })), []) }))``` | `[]` | no |
 | additional\_origins | Extra CloudFront origins on the primary distribution (map of origin ID to object), for serving content beside the app. See modules/edge/variables.tf for the shape. | ```map(object({ domain_name = string origin_access_control_id = optional(string) }))``` | `{}` | no |
 | ami\_ids | Base AMI ID per architecture (map with keys arm64 and x86\_64), or null to use the newest self-owned AMI tagged Name=gramps-web-base. Null follows the newest AMI, so a new build rolls out on the next apply; pin to hold it. The build cleanup keeps only the newest AMI per architecture plus those referenced by launch template versions or running instances, so rolling back by pinning reaches only an AMI still referenced. The AMIs come from the build project this module creates. | `map(string)` | `null` | no |
