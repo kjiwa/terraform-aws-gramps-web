@@ -1,10 +1,12 @@
 # Minimal deployment
 
-Hosted zone, cost budget, and audit trail from [terraform-aws-keel](https://github.com/kjiwa/terraform-aws-keel), plus Gramps Web with two inputs.
+Hosted zone, cost budget, and audit trail from [terraform-aws-keel](https://github.com/kjiwa/terraform-aws-keel), plus Gramps Web with two required inputs and your fork (`repo_url`, `source_branch`; see the root README's Quickstart).
 
 ```hcl
 module "gramps_web" {
-  source = "github.com/kjiwa/terraform-aws-gramps-web?ref=v1.0.0"
+  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v0.9.2"
+  repo_url      = "https://github.com/<you>/terraform-aws-gramps-web"
+  source_branch = "release-0.9"
   providers = {
     aws           = aws
     aws.us_east_1 = aws.us_east_1

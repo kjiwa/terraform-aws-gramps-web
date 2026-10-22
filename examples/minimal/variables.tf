@@ -13,3 +13,19 @@ variable "region" {
   type        = string
   default     = "us-east-1"
 }
+
+variable "repo_url" {
+  description = "HTTPS GitHub URL of your fork of the module repository (string); the CodeConnections app installs on it."
+  type        = string
+}
+
+variable "source_branch" {
+  description = "Release branch of repo_url matching the module ref (string)."
+  type        = string
+}
+
+variable "audit_log_retention_days" {
+  description = "Days the audit trail is retained and Object-Locked (number). Lower it for a trial: the locked bucket cannot be emptied, so it blocks teardown until it expires."
+  type        = number
+  default     = 365
+}

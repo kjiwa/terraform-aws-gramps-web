@@ -79,7 +79,7 @@ data "aws_iam_policy_document" "cloudfront_read" {
     }
   }
 
-  # TLS-only, matching the estate standard.
+  # TLS-only.
   statement {
     sid       = "DenyInsecureTransport"
     effect    = "Deny"

@@ -4,6 +4,8 @@
 # documented placeholder account IDs are not account IDs; /home/ec2-user is the
 # instance's own home, not a person's.
 #
+# Binary files and empty files are skipped.
+#
 #   ./hygiene.sh FILE...
 set -eu
 
@@ -38,6 +40,7 @@ main() {
   _main_status=0
   for _main_file in "$@"; do
     [ -f "$_main_file" ] || continue
+    grep -qI '' "$_main_file" || continue
     _check "account-id" "$PATTERN_ACCOUNT_ID" "$_main_file" || _main_status=1
     _check "profile" "$PATTERN_PROFILE" "$_main_file" || _main_status=1
     _check "email" "$PATTERN_EMAIL" "$_main_file" || _main_status=1

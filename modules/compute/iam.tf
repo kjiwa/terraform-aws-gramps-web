@@ -22,20 +22,7 @@ data "aws_iam_policy_document" "assume_role" {
   }
 }
 
-locals {
-  # var.instance_role_arn's own comment explains why this seam exists (unused
-  # until a future roots/standby root). "arn:...:role/<name>" -- role names
-  # cannot contain "/", so the last path segment is always the whole name.
-  instance_role_name = (
-    var.instance_role_arn != null
-    ? element(split("/", var.instance_role_arn), length(split("/", var.instance_role_arn)) - 1)
-    : aws_iam_role.instance[0].name
-  )
-}
-
 resource "aws_iam_role" "instance" {
-  count = var.instance_role_arn == null ? 1 : 0
-
   name               = "gramps-web-instance"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 
@@ -45,9 +32,7 @@ resource "aws_iam_role" "instance" {
 }
 
 resource "aws_iam_role_policy_attachment" "ssm_core" {
-  count = var.instance_role_arn == null ? 1 : 0
-
-  role       = aws_iam_role.instance[0].name
+  role       = aws_iam_role.instance.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
@@ -361,14 +346,27 @@ data "aws_iam_policy_document" "instance" {
 }
 
 resource "aws_iam_role_policy" "instance" {
-  count = var.instance_role_arn == null ? 1 : 0
-
   name   = "gramps-web-instance"
-  role   = aws_iam_role.instance[0].id
+  role   = aws_iam_role.instance.id
   policy = data.aws_iam_policy_document.instance.json
 }
 
 resource "aws_iam_instance_profile" "instance" {
   name = "gramps-web-instance"
-  role = local.instance_role_name
+  role = aws_iam_role.instance.name
+}
+
+moved {
+  from = aws_iam_role.instance[0]
+  to   = aws_iam_role.instance
+}
+
+moved {
+  from = aws_iam_role_policy_attachment.ssm_core[0]
+  to   = aws_iam_role_policy_attachment.ssm_core
+}
+
+moved {
+  from = aws_iam_role_policy.instance[0]
+  to   = aws_iam_role_policy.instance
 }

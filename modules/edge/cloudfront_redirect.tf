@@ -51,8 +51,8 @@ resource "aws_cloudfront_function" "redirect_to_primary" {
 # Canonical-host redirects: every redirect_domains apex (+ its www) to the
 # primary, and the primary's own www to its apex. Gramps Web stores auth
 # tokens in localStorage, which is scoped per origin (scheme+host+port), so
-# the app must be served on exactly one host -- every other alias in the
-# estate 301s here instead of serving a session-splitting second origin.
+# the app must be served on exactly one host -- every other alias
+# 301s here instead of serving a session-splitting second origin.
 resource "aws_cloudfront_distribution" "redirect" {
   for_each = local.redirect_targets
 

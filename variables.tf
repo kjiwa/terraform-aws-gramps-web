@@ -41,7 +41,7 @@ variable "env" {
 }
 
 variable "active" {
-  description = "Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept at a few USD per month; waking takes about five minutes."
+  description = "Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, and EBS still bill (about 10 to 15 USD per month); waking takes about five minutes."
   type        = bool
   default     = true
 }
@@ -53,7 +53,7 @@ variable "az" {
 }
 
 variable "ami_ids" {
-  description = "Base AMI ID per architecture (map with keys arm64 and x86_64), or null to use the newest self-owned AMI tagged Name=gramps-web-base. Null rolls a new build out on the next apply; pin to hold it. The AMIs come from the build project this module creates."
+  description = "Base AMI ID per architecture (map with keys arm64 and x86_64), or null to use the newest self-owned AMI tagged Name=gramps-web-base. Null follows the newest AMI, so a new build rolls out on the next apply; pin to hold it. The build cleanup keeps only the newest AMI per architecture plus those referenced by launch template versions or running instances, so rolling back by pinning reaches only an AMI still referenced. The AMIs come from the build project this module creates."
   type        = map(string)
   default     = null
   validation {
@@ -250,7 +250,7 @@ variable "gramps" {
 }
 
 variable "status" {
-  description = "Operational status page at /_status (object); off unless enabled. min_role is the lowest Gramps Web role that may view it (nobody locks it). host_metrics adds disk and memory panels and a disk alarm, billed per custom metric and alarm per month. volume_metrics adds exact byte metrics, needs host_metrics and a base-AMI rebuild. cost adds a Cost Explorer panel at 0.01 USD per call on a Lambda cold start. public_reliability serves redacted uptime history at /_status/public and cannot combine with min_role nobody."
+  description = "Operational status page at /_status (object); off unless enabled. min_role is the lowest Gramps Web role that may view it (nobody locks it). host_metrics adds disk and memory panels and a disk alarm, billed per custom metric and alarm per month. volume_metrics adds exact byte metrics, needs host_metrics and a base-AMI rebuild. cost adds a Cost Explorer panel at 0.01 USD per call on a Lambda cold start. public_reliability serves redacted uptime history at /_status/public and cannot combine with min_role nobody. The status Lambda reserves 10 concurrent executions and Lambda keeps 100 unreserved, so the account's Lambda concurrency quota must be at least 110; new accounts often start at 10, so request an increase first."
   type = object({
     enabled            = optional(bool, false)
     min_role           = optional(string, "owner")

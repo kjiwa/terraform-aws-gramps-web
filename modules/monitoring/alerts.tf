@@ -12,7 +12,7 @@ resource "aws_sns_topic" "alerts" {
 
 # EventBridge and CloudWatch alarms publish to SNS as service principals, so
 # the topic policy has to allow them. Scoped to this account's resources. Same
-# shape as data.aws_iam_policy_document.audit_topic (modules/audit/monitor.tf).
+# shape as the audit topic policy in keel's audit module.
 data "aws_iam_policy_document" "alerts_topic" {
   statement {
     sid       = "AllowEventBridgePublish"

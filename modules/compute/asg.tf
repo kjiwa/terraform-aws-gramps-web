@@ -1,10 +1,8 @@
 locals {
-  # Instance sizing is a consequence of the feature set, not a user decision
-  # (same pattern as effective_addons in the stack: the flag implies its
-  # dependencies). With the AI assistant on, the floor is 4 GiB and with it
+  # Instance sizing follows from the feature set, not a user decision. With the AI assistant on, the floor is 4 GiB and with it
   # off, 2 GiB. Both are upstream's rule of thumb (~200 MB per gunicorn worker,
-  # ~500 MB idle / ~1 GB peak per celery worker), not measured on this stack;
-  # GrampsWeb/MemUsedPercent (status.host_metrics) is the evidence to settle it.
+  # ~500 MB idle / ~1 GB peak per celery worker), not measured here;
+  # GrampsWeb/MemUsedPercent (status.host_metrics) settles it.
   #
   # Nitro-only is a hard constraint of this module: user_data discovers the
   # data volume by NVMe controller serial, and the launch template sets
@@ -49,7 +47,7 @@ resource "aws_autoscaling_group" "this" {
   # Win that race and an instance boots against a policy naming the OLD volume,
   # is denied the attach, and CodeDeploy fails BeforeInstall waiting for boot
   # glue user-data never wrote. Terraform usually wins it because IAM is fast;
-  # an apply that dies partway does not. It has happened.
+  # an apply that dies partway does not.
   depends_on = [aws_iam_role_policy.instance]
 
   # var.active is the sleep switch: 0 releases the instance while every other
@@ -64,8 +62,7 @@ resource "aws_autoscaling_group" "this" {
   mixed_instances_policy {
     launch_template {
       # Base spec is required; both overrides set their own LT explicitly, so
-      # this default is only a fallback. Pointed at arm64 to match the cheaper
-      # Graviton pools we prefer.
+      # this default is only a fallback. Pointed at arm64, the cheaper pools.
       launch_template_specification {
         launch_template_id = aws_launch_template.this["arm64"].id
         version            = aws_launch_template.this["arm64"].latest_version
@@ -141,8 +138,7 @@ resource "aws_autoscaling_group" "this" {
   }
 
   # These propagated tags are the only place Name/Project land on the
-  # instance (the launch template's own instance tag_specifications was
-  # removed as a dead duplicate); compute/iam.tf's EBSAttachDetach/
+  # instance; compute/iam.tf's EBSAttachDetach/
   # EIPAssociate conditions key on the Project tag actually being there, so
   # don't drop it.
   tag {
@@ -161,17 +157,14 @@ resource "aws_autoscaling_group" "this" {
   # come down before its replacement launches, so some downtime is inherent
   # and expected, not a fault to guard against. What alarm_specification
   # guards against is a refresh that never comes back -- without it a launch
-  # stuck behind a hung CodeDeploy lifecycle hook still reports Successful
-  # (measured: 39 min and 30 min outages, both "Successful, 100%"). The alarm
+  # stuck behind a hung CodeDeploy lifecycle hook still reports Successful. The alarm
   # is var.pathological_refresh_alarm_names, not the site's own
   # gramps-web-site-down: that one fires at 2 min of downtime, which every
   # normal size-1 refresh (3-5 min down by construction) would trip.
   #
   # No auto_rollback: AWS rejects a DesiredConfiguration -- which
   # AutoRollback requires -- on any ASG whose mixed_instances_policy override
-  # uses instance_requirements, as this one does (measured against the live
-  # API, both via Terraform's own automatic refresh-on-AMI-change and a
-  # direct StartInstanceRefresh call). A stuck refresh still reports Failed
+  # uses instance_requirements, as this one does. A stuck refresh still reports Failed
   # via the alarm; it just isn't reverted automatically.
   instance_refresh {
     strategy = "Rolling"

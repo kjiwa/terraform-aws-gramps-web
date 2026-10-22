@@ -19,7 +19,7 @@ data "aws_caller_identity" "current" {}
 # terraform apply -target this key, scripts/azmove.sh rekey, adopt, apply. See
 # docs/cross-account-backup.md (Re-key the data volume).
 #
-# Root full-access delegates authorization to IAM, matching bootstrap/kms.tf.
+# Root full-access delegates authorization to IAM.
 data "aws_iam_policy_document" "data_key" {
   count = local.backup_cross_account ? 1 : 0
 
@@ -45,25 +45,22 @@ data "aws_iam_policy_document" "data_key" {
   # wildcards are wider than they look: GenerateDataKey* also grants
   # GenerateDataKeyPair and GenerateDataKeyPairWithoutPlaintext, which are
   # asymmetric-keypair operations that cannot occur in a snapshot copy. Access
-  # Analyzer reports the expanded set, which is how the over-grant surfaced.
-  dynamic "statement" {
-    for_each = local.backup_cross_account ? [1] : []
-    content {
-      sid    = "BackupAccountCopySnapshot"
-      effect = "Allow"
-      actions = [
-        "kms:Decrypt",
-        "kms:DescribeKey",
-        "kms:ReEncryptFrom",
-        "kms:ReEncryptTo",
-        "kms:GenerateDataKey",
-        "kms:GenerateDataKeyWithoutPlaintext",
-      ]
-      resources = ["*"]
-      principals {
-        type        = "AWS"
-        identifiers = ["arn:aws:iam::${var.backup.account_id}:root"]
-      }
+  # Analyzer reports the expanded set.
+  statement {
+    sid    = "BackupAccountCopySnapshot"
+    effect = "Allow"
+    actions = [
+      "kms:Decrypt",
+      "kms:DescribeKey",
+      "kms:ReEncryptFrom",
+      "kms:ReEncryptTo",
+      "kms:GenerateDataKey",
+      "kms:GenerateDataKeyWithoutPlaintext",
+    ]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${var.backup.account_id}:root"]
     }
   }
 
@@ -71,22 +68,19 @@ data "aws_iam_policy_document" "data_key" {
   # creates grants on the caller's behalf to run a copy job. GrantIsForAWSResource
   # confines it to grants AWS services create for themselves, so it is not usable
   # as a general-purpose escalation.
-  dynamic "statement" {
-    for_each = local.backup_cross_account ? [1] : []
-    content {
-      sid       = "BackupAccountCreateGrant"
-      effect    = "Allow"
-      actions   = ["kms:CreateGrant"]
-      resources = ["*"]
-      principals {
-        type        = "AWS"
-        identifiers = ["arn:aws:iam::${var.backup.account_id}:root"]
-      }
-      condition {
-        test     = "Bool"
-        variable = "kms:GrantIsForAWSResource"
-        values   = ["true"]
-      }
+  statement {
+    sid       = "BackupAccountCreateGrant"
+    effect    = "Allow"
+    actions   = ["kms:CreateGrant"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${var.backup.account_id}:root"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "kms:GrantIsForAWSResource"
+      values   = ["true"]
     }
   }
 }
@@ -110,11 +104,6 @@ resource "aws_kms_alias" "data" {
   target_key_id = aws_kms_key.data[0].key_id
 }
 
-moved {
-  from = aws_ebs_volume.this[0]
-  to   = aws_ebs_volume.this
-}
-
 resource "aws_ebs_volume" "this" {
   availability_zone = var.az
   size              = var.data_volume_gib
@@ -134,6 +123,7 @@ resource "aws_ebs_volume" "this" {
   tags = {
     Name       = "gramps-data"
     Persistent = "true"
+    Project    = "gramps-web"
   }
 
   lifecycle {
@@ -142,8 +132,7 @@ resource "aws_ebs_volume" "this" {
 }
 
 locals {
-  # Explicit name wins (pre-existing deployments); otherwise derive a name
-  # that is unique per account without configuration.
+  # An explicit name wins; otherwise derive one unique per account.
   media_bucket_name = (
     var.media_bucket_name != ""
     ? var.media_bucket_name
@@ -166,8 +155,7 @@ resource "aws_s3_bucket" "media" {
   }
 }
 
-# TLS-only. Same control as the audit log bucket; applied to every bucket in the
-# estate rather than just that one.
+# TLS-only.
 data "aws_iam_policy_document" "media" {
   statement {
     sid       = "DenyInsecureTransport"

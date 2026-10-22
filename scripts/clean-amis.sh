@@ -2,19 +2,19 @@
 # Deregister superseded Packer base AMIs and delete their backing snapshots.
 #
 # build/ami/gramps-ami.pkr.hcl builds a timestamped gramps-web-base AMI per
-# architecture on every rebuild; terraform deploys whichever IDs are pinned in
-# ami_ids. Nothing native ever deregisters the superseded builds, so
+# architecture on every rebuild; terraform deploys the newest unless ami_ids pins
+# them. Nothing native ever deregisters the superseded builds, so
 # each rebuild strands two AMIs whose root-volume snapshots bill forever. This
 # walks every AMI matching the same selector Packer tags with (self-owned,
 # tag:Name=gramps-web-base, state=available) and removes all but the keep set:
 #
-#   - the newest AMI per architecture (the candidate for the next ami_ids
-#     bump),
+#   - the newest AMI per architecture (what an unpinned ami_ids follows),
 #   - any AMI referenced by a current gramps-web launch template version or a
-#     running/pending gramps-web instance (this is what protects the currently
-#     PINNED AMI once newer builds exist: the launch template holds the pin,
-#     and a root snapshot must never be pulled out from under a live instance
-#     or a template the ASG could still launch from).
+#     running/pending gramps-web instance (this protects the pinned or
+#     currently deployed AMI once newer builds exist; a root snapshot must
+#     never be pulled out from under a live instance or a template the ASG
+#     could still launch from). A rollback by pinning reaches only AMIs kept
+#     here.
 #
 # Any failure while building the keep set aborts before anything is deleted:
 # a lost API call must not silently shrink the set of protected AMIs.

@@ -1,8 +1,9 @@
 # Base AMIs built by Packer (build/ami/gramps-ami.pkr.hcl, normally via the
-# gramps-web-ami CodeBuild project), pinned per architecture. A
-# rebuild changes nothing until ami_ids is bumped: AMI rollout is a deliberate
-# commit (bump, apply -> new launch template version -> ASG instance refresh)
-# and rollback is reverting it. Candidates, newest first:
+# gramps-web-ami CodeBuild project), one per architecture. With ami_ids null the
+# root module follows the newest AMI, so a rebuild rolls out on the next apply
+# (new launch template version -> ASG instance refresh); pinning ami_ids holds
+# it. Rollback by pinning reaches only an AMI that clean-amis.sh still keeps.
+# Candidates, newest first:
 #   aws ec2 describe-images --owners self \
 #     --filters Name=tag:Name,Values=gramps-web-base Name=state,Values=available \
 #     --query 'reverse(sort_by(Images,&CreationDate))[].[Architecture,ImageId,CreationDate]' \
@@ -87,9 +88,8 @@ resource "aws_launch_template" "this" {
   lifecycle {
     create_before_destroy = true
 
-    # aws_ssm_parameter.gramps_env and aws_ssm_parameter.frontend_config are
-    # siblings under /gramps-web/${var.env}/ by convention -- catch a rename
-    # that splits them at plan time rather than as an operational surprise.
+    # gramps_env and frontend_config are siblings under one SSM path prefix;
+    # catch a rename that splits them at plan time, not at boot.
     precondition {
       condition     = dirname(aws_ssm_parameter.gramps_env.name) == dirname(aws_ssm_parameter.frontend_config.name)
       error_message = "aws_ssm_parameter.gramps_env and aws_ssm_parameter.frontend_config must share a path prefix."

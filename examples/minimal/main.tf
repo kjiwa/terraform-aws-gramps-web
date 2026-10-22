@@ -36,6 +36,8 @@ module "gramps_web" {
 
   primary_domain = var.primary_domain
   alert_email    = var.alert_email
+  repo_url       = var.repo_url
+  source_branch  = var.source_branch
 
   media_bucket_name = local.media_bucket_name
 
@@ -46,8 +48,9 @@ module "gramps_web" {
 module "audit" {
   source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/audit?ref=v0.1.0"
 
-  name_prefix = "gramps-web"
-  alert_email = var.alert_email
+  name_prefix        = "gramps-web"
+  alert_email        = var.alert_email
+  log_retention_days = var.audit_log_retention_days
   log_source_buckets = [{
     name = local.media_bucket_name
     arn  = "arn:aws:s3:::${local.media_bucket_name}"

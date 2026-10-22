@@ -5,7 +5,7 @@ version: 0.2
 # beside this file; the project injects REGION. Manual-trigger only
 # (patching has its own cadence):
 #   aws codebuild start-build --project-name gramps-web-ami
-# New AMIs roll out only once pinned in ami_ids and applied.
+# With ami_ids null, the next apply rolls the newest AMIs out; pin ami_ids to hold.
 # post_build (not build) so the AMI garbage collection still runs when Packer
 # fails partway through building one of the two architectures.
 #

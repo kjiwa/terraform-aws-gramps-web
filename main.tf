@@ -93,10 +93,10 @@ module "edge" {
   additional_cache_behaviors = var.additional_cache_behaviors
 }
 
-# Authenticated operational status page at /_status (see the status variable). Gated on Gramps Web's own role for the
-# caller's token, so it needs the same primary_domain as the app itself; the
-# ECR repository name (not just its URL/ARN, already passed to app_pipeline
-# below) is derived from the URL since compute does not output it bare.
+# Authenticated operational status page at /_status (see the status variable).
+# Gated on Gramps Web's own role for the caller's token, so it needs the same
+# primary_domain as the app itself. The ECR repository name is derived from the
+# URL because compute does not output it bare.
 module "status" {
   source = "./modules/status"
   count  = var.status.enabled ? 1 : 0
@@ -195,7 +195,7 @@ module "app_pipeline" {
 
 # Base-AMI patch rebuilds under a scoped role. Manual-trigger:
 #   aws codebuild start-build --project-name gramps-web-ami
-# then apply to roll out the newest AMIs (or pin the printed IDs in ami_ids).
+# then apply to roll out the newest AMIs (or pin ami_ids to hold).
 module "ami_build" {
   source = "./modules/ami-build"
 
@@ -270,7 +270,7 @@ resource "aws_cloudwatch_metric_alarm" "instance_refresh_pathological" {
 }
 
 # Account-level Public Access Block: the backstop for the per-bucket PABs set
-# throughout the estate. A bucket created outside Terraform, or one whose own
+# throughout this deployment. A bucket created outside Terraform, or one whose own
 # PAB is later loosened, still cannot be made public while this is on. One free
 # resource; the single highest-leverage S3 exposure control.
 resource "aws_s3_account_public_access_block" "this" {

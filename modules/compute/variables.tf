@@ -4,7 +4,7 @@ variable "env" {
 }
 
 variable "ami_ids" {
-  description = "Per-architecture base AMI IDs (gramps-web-base Packer builds), pinned by the caller. One launch template per architecture binds to each; see launch_template.tf for how to list candidates."
+  description = "Per-architecture base AMI IDs (gramps-web-base Packer builds), resolved by the root module. One launch template per architecture binds to each; see launch_template.tf for how to list candidates."
   type        = map(string)
   validation {
     condition     = sort(keys(var.ami_ids)) == tolist(["arm64", "x86_64"])
@@ -174,10 +174,4 @@ variable "status_volume_metrics" {
   description = "If true (and status_host_metrics is also true), the instance publishes DiskUsedBytes/DiskTotalBytes for both the data volume and root, each with a Mount=data|root dimension, instead of a single DiskUsedPercent for the data volume. Read by build/ami/health-watchdog.sh from the instance_runtime SSM parameter (ssm.tf); takes effect only once an instance is running an AMI built after this flag existed (the script is Packer-baked). Consumed by the status page's Storage panel (status.volume_metrics in the root variables); off by default, matching that panel's default."
   type        = bool
   default     = false
-}
-
-variable "instance_role_arn" {
-  description = "Optional pre-existing IAM role ARN for the instance profile. When set, this module skips creating aws_iam_role.instance/aws_iam_instance_profile.instance and uses the passed role instead."
-  type        = string
-  default     = null
 }

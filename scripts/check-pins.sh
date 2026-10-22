@@ -1,10 +1,16 @@
 #!/bin/sh
-# Compares the hand-pinned tool versions no ecosystem bot covers against
-# their upstream latest, and prints the ones behind. Dependabot has no
-# Packer ecosystem (and neither does Renovate), and nothing reads
-# .terraform-version, terraform.yml's setup-tflint version input,
-# .tflint.hcl, ci.yml's GITLEAKS_VERSION, or the gramps.version default --
-# these pins would otherwise rot silently.
+# Compares the hand-pinned versions no ecosystem bot covers against their
+# upstream latest, and prints the ones behind. The eight pins:
+#   Packer CLI (build/ami/build.sh)
+#   packer-plugin-amazon (build/ami/gramps-ami.pkr.hcl)
+#   Terraform CLI (.terraform-version)
+#   tflint (terraform.yml's setup-tflint version input)
+#   tflint AWS ruleset (.tflint.hcl)
+#   Gramps Web (the gramps.version default in variables.tf)
+#   gitleaks (ci.yml's GITLEAKS_VERSION)
+#   valkey (build/app/bundle/docker-compose.yml)
+# Dependabot has no Packer ecosystem and nothing else reads these, so they
+# would rot silently.
 # Read-only: never edits a pin itself, since every one of these has a manual
 # consequence (an AMI rebuild, a `tflint --init`, a `tfenv install`) a bot
 # can't discharge.

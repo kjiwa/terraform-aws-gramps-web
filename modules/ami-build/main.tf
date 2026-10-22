@@ -2,8 +2,8 @@
 # build/ami/build.sh, so patch rebuilds run under a scoped role instead of
 # workstation admin credentials. Manual-trigger only (no webhook): the base
 # AMI is rebuilt for OS/agent patching on its own cadence, not per commit.
-# The resulting AMIs deploy nothing until pinned in ami_ids and
-# applied -- the build produces artifacts, terraform owns rollout.
+# With ami_ids null the next apply rolls the newest AMIs out; the build only
+# produces artifacts.
 
 data "aws_caller_identity" "current" {}
 

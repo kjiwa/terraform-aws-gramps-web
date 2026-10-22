@@ -52,7 +52,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
   }
 }
 
-# TLS-only, matching the estate standard.
+# TLS-only.
 data "aws_iam_policy_document" "artifacts" {
   statement {
     sid       = "DenyInsecureTransport"

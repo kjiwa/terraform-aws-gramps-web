@@ -173,18 +173,12 @@ resource "aws_cloudfront_distribution" "primary" {
     }
   }
 
-  # Status page: six EXACT path patterns, not the "/_status*" wildcard this
-  # replaced. CloudFront's ordered_cache_behavior is first-match-wins by list
-  # position, so a wildcard makes correctness depend on where in the list it
-  # happens to be declared -- and it swallowed /_status/public/, which
-  # lambda/status.py's rstrip("/") normalization folded back into the same
-  # path as /_status/public, serving the full public payload off a
-  # trailing-slash request from a CachingDisabled behavior on every hit.
-  # Exact patterns make precedence irrelevant, and anything else under
-  # /_status/ (including that trailing-slash case) falls through to the app
-  # origin without ever invoking the Lambda. compress = true on all six --
-  # the wildcard behavior it replaced omitted it, so both the ~24 KB shell
-  # and the ~19 KB JSON payload shipped uncompressed.
+  # Status page: six EXACT path patterns, not a "/_status*" wildcard.
+  # ordered_cache_behavior is first-match-wins by list position, and a wildcard
+  # would match /_status/public/, which lambda/status.py's rstrip("/")
+  # normalization folds into /_status/public, serving the full public payload
+  # from an uncached behavior. Anything else under /_status/ falls through to
+  # the app origin without invoking the Lambda.
 
   # Shell: GET /_status and /_status/ both serve the single _status/index.html
   # object build/web/publish.sh publishes (the built pages/status.html shell,
