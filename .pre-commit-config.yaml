@@ -4,6 +4,10 @@ repos:
     hooks:
       - id: terraform_fmt
       - id: terraform_validate
+        # Parallel `terraform init` races on TF_PLUGIN_CACHE_DIR in CI
+        # (hashicorp/terraform#31964).
+        args:
+          - --hook-config=--parallelism-limit=1
         # The root module and modules/edge declare configuration_aliases, which
         # cannot bind when a module is validated standalone as this hook does
         # -- there is no caller to supply the alias (hashicorp/terraform#28490).
