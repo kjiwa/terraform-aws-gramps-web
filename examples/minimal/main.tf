@@ -36,6 +36,8 @@ module "gramps_web" {
 
   primary_domain = var.primary_domain
   alert_email    = var.alert_email
+  repo_url       = var.repo_url
+  source_branch  = var.source_branch
 
   media_bucket_name = local.media_bucket_name
 

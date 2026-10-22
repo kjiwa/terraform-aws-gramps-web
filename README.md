@@ -41,22 +41,24 @@ The availability Lambda probes the site every minute and records outages and the
 
 ## Cost
 
-Real figures from one small production deployment, offered as an example and not a promise: a single Spot instance of about 4 GiB, chat enabled, the status page on, and AWS Backup, in us-east-1. Unblended cost by service from AWS Cost Explorer, in USD, including tax.
+Real figures from one small production deployment, offered as an example and not a promise: a single Spot instance of about 4 GiB (module defaults are On-Demand, `spot.enabled` false), chat enabled, the status page on, and AWS Backup, in us-east-1, for one full month. Unblended cost by service from AWS Cost Explorer, in USD, including tax.
 
-| Service | Sep 2026 (full month) | 1-20 Oct 2026 |
-|---|---:|---:|
-| EC2 compute (Spot) | 11.94 | 7.37 |
-| Key Management Service | 4.96 | 3.18 |
-| EC2 other (EBS and related) | 3.97 | 2.62 |
-| VPC (public IPv4 address) | 3.61 | 2.40 |
-| Tax | 2.83 | 1.82 |
-| Container Registry (ECR) | 1.34 | 1.24 |
-| CloudWatch | 1.30 | 0.00 |
-| Route 53 | 1.04 | 1.03 |
-| S3, Cost Explorer, CodeBuild, Backup | 0.51 | 0.26 |
-| **Total** | **31.50** | **19.92** |
+| Service | Sep 2026 |
+|---|---:|
+| EC2 compute (Spot) | 11.94 |
+| Key Management Service | 4.96 |
+| EC2 other (EBS and related) | 3.97 |
+| VPC (public IPv4 address) | 3.61 |
+| Tax | 2.83 |
+| Container Registry (ECR) | 1.34 |
+| CloudWatch | 1.30 |
+| Route 53 | 1.04 |
+| S3, Cost Explorer, CodeBuild, Backup | 0.51 |
+| **Total** | **31.50** |
 
-Everything else rounds to zero. No Bedrock line item appeared in either period; chat is billed per token. The total is about one dollar a day. October stops at the 20th because the Spot allocation strategy changed on 21 October; no whole day has elapsed since, so these figures describe the earlier configuration. Spot prices, instance size, volume size, and chat usage move the total. Each cost-bearing input states its price in the [module reference](#module-reference). A sleeping site costs a few dollars a month.
+Everything else rounds to zero. No Bedrock line item appeared; chat is billed per token. The total is about one dollar a day. Spot prices, instance size, volume size, and chat usage move the total. Each cost-bearing input states its price in the [module reference](#module-reference).
+
+The Route 53 line is the hosted zone from keel's `dns` module, and keel's audit module adds KMS keys, S3 storage, and CloudTrail to the KMS and S3 lines; this module's own keys are the data volume and backup keys.
 
 ## Backups
 
@@ -90,7 +92,7 @@ The deploy builds the image from the upstream release plus your addons, pushes i
 
 ## Sleeping the site
 
-`active = false` stops the instance and the canary alarms and keeps all data, which costs a few dollars a month. Setting it back to `true` and applying wakes the site in about five minutes.
+`active = false` stops the instance and the canary alarms and keeps all data. Public IPv4, KMS keys, the Route 53 zone, ECR, and EBS keep billing, about ten dollars a month on the table's figures (the zone and some KMS keys belong to keel in the example). Setting it back to `true` and applying wakes the site in about five minutes.
 
 ## Release branches
 
@@ -108,9 +110,9 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
 ## Requirements
 
-- Terraform 1.15 or later and the AWS provider 6.45 or later. The module needs an `aws.us_east_1` provider alias for the CloudFront certificate.
+- Terraform 1.15 or later, the AWS provider 6.45 or later, and the archive (2.7 or later) and random (3.9 or later) providers. The module needs an `aws.us_east_1` provider alias for the CloudFront certificate.
 - A public Route 53 hosted zone for each served domain. [terraform-aws-keel](https://github.com/kjiwa/terraform-aws-keel)'s `dns` module creates one.
-- For the first deployment: Packer, to build the base AMIs.
+- For the first deployment: Packer, to build the base AMIs, a default VPC in the region (Packer sets no subnet), and `aws`, `jq`, `curl`, `unzip`, and `sha256sum` for `build/ami/build.sh`.
 - For the operator scripts under `scripts/`: the AWS CLI, `terraform`, and `jq`.
 - For the AI assistant (`llm.enabled`): Anthropic model access enabled in the Bedrock console.
 
@@ -118,7 +120,9 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
 [examples/minimal](examples/minimal) composes the module with keel's DNS, cost budget, and audit modules.
 
-1. Build the base AMIs first, from a checkout of this repository. The module looks up the newest AMI tagged `Name=gramps-web-base`, so a plan fails until one exists; `ami_ids` stays unset. The build takes about ten minutes.
+1. Fork this repository: GitHub's CodeConnections app installs only on accounts you control. In the module call, set `repo_url` to your fork and `source_branch` to the release branch matching the module ref (`release-<major>.<minor>`, see [Release branches](#release-branches)). The example takes both as variables, passed below with `-var`.
+
+2. Build the base AMIs from a checkout of this repository. The module looks up the newest AMI tagged `Name=gramps-web-base`, so a plan fails until one exists; `ami_ids` stays unset. The build takes about ten minutes.
 
    ```sh
    REGION=us-east-1 build/ami/build.sh
@@ -126,31 +130,40 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
    Use the region the site will run in; the example's `region` variable must match.
 
-2. Create the GitHub connection.
+3. Create the GitHub connection.
 
    ```sh
    cd examples/minimal
    terraform init
    terraform apply -target=module.gramps_web.aws_codeconnections_connection.github \
-     -var primary_domain=example.org -var alert_email=you@example.org
+     -var primary_domain=example.org -var alert_email=you@example.org \
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-0.9
    ```
 
-3. Approve it: in the console, open Developer Tools, Settings, Connections, update the pending `gramps-web` connection, and install the GitHub app on `kjiwa/terraform-aws-gramps-web` (or the repository `repo_url` names).
+4. Approve it: in the console, open Developer Tools, Settings, Connections, update the pending `gramps-web` connection, and install the GitHub app on your fork.
 
-4. Apply the rest.
+5. Apply the rest.
 
    ```sh
-   terraform apply -var primary_domain=example.org -var alert_email=you@example.org
+   terraform apply -var primary_domain=example.org -var alert_email=you@example.org \
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-0.9
    ```
 
    The apply creates the hosted zone, then waits on certificate validation. Read the name servers with `terraform output -json name_servers` and set them at your registrar while it waits; re-running an apply that timed out is safe. Confirm the SNS subscription emails.
 
-5. Build and ship the app and the error pages. `--root` is the directory that instantiates the module.
+6. Build and ship the app and the error pages. `--root` is the directory that instantiates the module.
 
    ```sh
    scripts/deploy.sh --root examples/minimal gramps
    scripts/deploy.sh --root examples/minimal web
    ```
+
+## Security and limits
+
+- CloudFront reaches the origin over plain HTTP: the origin security group admits the CloudFront origin-facing prefix list on port 80, and no shared-secret header is checked. Login traffic crosses the public internet unencrypted between CloudFront and the instance, and any CloudFront distribution can reach the origin's Elastic IP.
+- SES starts in the sandbox in a new account. Invite and reset emails reach only verified recipients until you request production access.
+- One deployment per account: resource names are fixed, and `env` namespaces only SSM parameters and CodeDeploy.
+- `prevent_destroy` on the data volume and media bucket makes `terraform destroy` stop by design. TEARDOWN: to be filled from the dry run.
 
 ## Operating
 
@@ -209,10 +222,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Licensed 
 | ---- | ----------- | ---- | ------- | :------: |
 | alert\_email | Address that receives site DOWN/RECOVERED notices and Spot interruption alerts (string). Confirm the SNS subscription email after the first apply. | `string` | n/a | yes |
 | primary\_domain | Canonical apex domain (string). Every other entry in domains, and every www. host, 301s to it. Its Route 53 hosted zone must already exist. | `string` | n/a | yes |
-| active | Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept at a few USD per month; waking takes about five minutes. | `bool` | `true` | no |
+| active | Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, and EBS still bill (about 10 USD per month); waking takes about five minutes. | `bool` | `true` | no |
 | additional\_cache\_behaviors | Extra ordered cache behaviors on the primary distribution (list of objects) that route paths to additional\_origins. See modules/edge/variables.tf for the shape and the paths that must not be overlapped. | ```list(object({ path_pattern = string target_origin_id = string allowed_methods = optional(list(string), ["GET", "HEAD"]) cache_policy_id = optional(string, "658327ea-f89d-4fab-a63d-7e88639e58f6") origin_request_policy_id = optional(string) function_associations = optional(list(object({ event_type = string function_arn = string })), []) }))``` | `[]` | no |
 | additional\_origins | Extra CloudFront origins on the primary distribution (map of origin ID to object), for serving content beside the app. See modules/edge/variables.tf for the shape. | ```map(object({ domain_name = string origin_access_control_id = optional(string) }))``` | `{}` | no |
-| ami\_ids | Base AMI ID per architecture (map with keys arm64 and x86\_64), or null to use the newest self-owned AMI tagged Name=gramps-web-base. Null rolls a new build out on the next apply; pin to hold it. The AMIs come from the build project this module creates. | `map(string)` | `null` | no |
+| ami\_ids | Base AMI ID per architecture (map with keys arm64 and x86\_64), or null to use the newest self-owned AMI tagged Name=gramps-web-base. Null follows the newest AMI, so a new build rolls out on the next apply; pin to hold it. The build cleanup keeps only the newest AMI per architecture plus those referenced by launch template versions or running instances, so rolling back by pinning reaches only an AMI still referenced. The AMIs come from the build project this module creates. | `map(string)` | `null` | no |
 | api | Non-secret Gramps Web API settings (object). registration is open, unlisted (open endpoint, no sign-up link) or closed. tree\_id is required when tree is not main. Unset (null) fields keep upstream defaults. extra passes other upstream keys without the GRAMPSWEB\_ prefix and is stored in a plain SSM parameter, so never put secrets in it. | ```object({ tree = optional(string, "main") tree_id = optional(string) registration = optional(string, "open") disable_telemetry = optional(bool, false) pillow_max_image_pixels = optional(number) max_thumbnail_file_bytes = optional(number) log_level = optional(string) rate_limit_media_archive = optional(string) cors_origins = optional(string) extra = optional(map(string), {}) })``` | `{}` | no |
 | az | Availability zone of the instance and data volume (string), or null for the region's first available zone. Changing it on a live deployment replaces the volume (docs/az-move.md). | `string` | `null` | no |
 | backup | AWS Backup of the data volume and media bucket (object), billed per GiB-month of recovery points. mode is local, cross\_region (adds a copy in region, default us-east-2, with a second vault and key), cross\_account (copies into a vault account\_id owns under dest\_vault\_name; docs/cross-account-backup.md), or disabled. retention\_days is in days (0 for remote\_retention\_days means the same as local); schedule is a cron or rate expression in UTC. | ```object({ mode = optional(string, "local") region = optional(string, "") account_id = optional(string, "") retention_days = optional(number, 7) remote_retention_days = optional(number, 0) dest_vault_name = optional(string, "gramps-web-backup-replica") schedule = optional(string, "cron(0 3 * * ? *)") })``` | `{}` | no |

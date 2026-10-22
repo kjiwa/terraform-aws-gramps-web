@@ -13,3 +13,15 @@ variable "region" {
   type        = string
   default     = "us-east-1"
 }
+
+variable "repo_url" {
+  description = "HTTPS GitHub URL of your fork of the module repository (string); the CodeConnections app installs on it."
+  type        = string
+  default     = "https://github.com/kjiwa/terraform-aws-gramps-web"
+}
+
+variable "source_branch" {
+  description = "Release branch of repo_url matching the module ref (string)."
+  type        = string
+  default     = "main"
+}

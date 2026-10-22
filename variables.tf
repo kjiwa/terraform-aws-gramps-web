@@ -41,7 +41,7 @@ variable "env" {
 }
 
 variable "active" {
-  description = "Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept at a few USD per month; waking takes about five minutes."
+  description = "Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, and EBS still bill (about 10 USD per month); waking takes about five minutes."
   type        = bool
   default     = true
 }
@@ -53,7 +53,7 @@ variable "az" {
 }
 
 variable "ami_ids" {
-  description = "Base AMI ID per architecture (map with keys arm64 and x86_64), or null to use the newest self-owned AMI tagged Name=gramps-web-base. Null rolls a new build out on the next apply; pin to hold it. The AMIs come from the build project this module creates."
+  description = "Base AMI ID per architecture (map with keys arm64 and x86_64), or null to use the newest self-owned AMI tagged Name=gramps-web-base. Null follows the newest AMI, so a new build rolls out on the next apply; pin to hold it. The build cleanup keeps only the newest AMI per architecture plus those referenced by launch template versions or running instances, so rolling back by pinning reaches only an AMI still referenced. The AMIs come from the build project this module creates."
   type        = map(string)
   default     = null
   validation {
