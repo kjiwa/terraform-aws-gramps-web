@@ -4,6 +4,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-22
+
 ### Added
 
 - `docs/teardown.md`, and an `audit_log_retention_days` input in `examples/minimal` so a trial can be torn down.
@@ -48,7 +50,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - `examples/minimal`, composing the module with the keel DNS, cost budget, and audit modules.
 - Contract tests for the root module, a hygiene check, and pre-commit configuration.
 
-[Unreleased]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kjiwa/terraform-aws-gramps-web/releases/tag/v0.9.0
