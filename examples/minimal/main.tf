@@ -1,3 +1,11 @@
+data "aws_caller_identity" "current" {}
+
+locals {
+  # Named here, not read from the module: audit keys a for_each by bucket name,
+  # which must be known at plan time.
+  media_bucket_name = "gramps-web-media-${data.aws_caller_identity.current.account_id}"
+}
+
 module "dns" {
   source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/dns?ref=v0.1.0"
   providers = {
@@ -29,6 +37,8 @@ module "gramps_web" {
   primary_domain = var.primary_domain
   alert_email    = var.alert_email
 
+  media_bucket_name = local.media_bucket_name
+
   # The module looks up the hosted zone by name, so it must exist first.
   depends_on = [module.dns]
 }
@@ -39,7 +49,7 @@ module "audit" {
   name_prefix = "gramps-web"
   alert_email = var.alert_email
   log_source_buckets = [{
-    name = module.gramps_web.media_bucket_name
-    arn  = module.gramps_web.media_bucket_arn
+    name = local.media_bucket_name
+    arn  = "arn:aws:s3:::${local.media_bucket_name}"
   }]
 }
