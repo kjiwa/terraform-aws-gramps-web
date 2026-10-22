@@ -5,7 +5,7 @@
 #
 # The daily AWS Backup plan (modules/storage/backup.tf) already takes a
 # crash-consistent recovery point of both at 03:00 UTC and copies it wherever
-# the backup tfvars object points. This script is for what a schedule cannot
+# the module's backup.mode points. This script is for what a schedule cannot
 # do: take a restore point RIGHT NOW, and take an APP-CONSISTENT one.
 #
 #   ./backup.sh snapshot [reason]  Raw snapshot of the data volume.
@@ -59,8 +59,9 @@
 # locking the destination vault (docs/cross-account-backup.md). Adopting a
 # restored volume into the live stack is scripts/azmove.sh (docs/az-move.md).
 #
-# Env: ENV (default prod; selects terraform/config/stack/<env>), AWS_REGION
-#      (default: primary_region from the env's tfvars), FORCE=1 (skip prompts).
+# Root: --root DIR, or $GRAMPS_WEB_ROOT, is the Terraform root that
+#       instantiates the module (see common.sh). Place it before the subcommand.
+# Env:  FORCE=1 (skip prompts).
 set -eu
 
 SCRIPT_DIR="$(
@@ -68,16 +69,12 @@ SCRIPT_DIR="$(
   cd -- "$(dirname -- "$0")" && pwd
 )"
 readonly SCRIPT_DIR
-REPO_ROOT="$(dirname -- "$SCRIPT_DIR")"
-readonly REPO_ROOT
 
 readonly LOG_PREFIX="backup"
+# shellcheck source=keel/common.sh
+. "$SCRIPT_DIR/keel/common.sh"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
-
-env_paths
-REGION="$(resolve_region "$TFVARS")"
-readonly REGION
 
 # The role and plan modules/storage/backup.tf declares. Repo constants, as in
 # deploy.sh: neither is worth an output, and a name mismatch fails loudly rather
@@ -113,14 +110,13 @@ start_app() {
 # EXIT trap: if anything dies between stop and restart, bring the site back
 # up before exiting. `up -d` is idempotent, so a spurious restart is a no-op.
 cleanup() {
-  local status
-  status=$?
+  _cleanup_status=$?
   if [ "$APP_STOPPED" = 1 ]; then
     log "Backup did not complete cleanly; bringing the app back up..."
     start_app ||
       log "ERROR: restart failed. On the instance, run: $START_CMD"
   fi
-  exit "$status"
+  exit "$_cleanup_status"
 }
 
 # Written before the app stops so the availability Lambda attributes the
@@ -137,16 +133,15 @@ mark_backup() {
 # $1 = volume id. Stop the two writers on the attached instance so the
 # snapshot is app-consistent. Sets INSTANCE_ID and APP_STOPPED.
 quiesce_app() {
-  local ping
   INSTANCE_ID="$(aws ec2 describe-volumes --region "$REGION" \
     --volume-ids "$1" \
     --query 'Volumes[0].Attachments[0].InstanceId' --output text)"
-  ping="$(aws ssm describe-instance-information --region "$REGION" \
+  _quiesce_app_ping="$(aws ssm describe-instance-information --region "$REGION" \
     --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
     --query 'InstanceInformationList[0].PingStatus' \
     --output text 2>/dev/null || echo None)"
-  [ "$ping" = "Online" ] ||
-    die "cannot quiesce: $INSTANCE_ID is not reachable over SSM (ping: $ping).
+  [ "$_quiesce_app_ping" = "Online" ] ||
+    die "cannot quiesce: $INSTANCE_ID is not reachable over SSM (ping: $_quiesce_app_ping).
 For a crash-consistent recovery point instead, with no downtime and off-site:
   $0 run"
 
@@ -162,59 +157,57 @@ For a crash-consistent recovery point instead, with no downtime and off-site:
 # create_snapshot VOLUME REASON -> snapshot id on stdout. Its point-in-time is
 # locked in as soon as this returns, so the app can restart before the upload.
 create_snapshot() {
-  local ts
-  ts="$(date -u +%Y%m%d%H%M%S)"
+  _create_snapshot_ts="$(date -u +%Y%m%d%H%M%S)"
   aws ec2 create-snapshot --region "$REGION" --volume-id "$1" \
-    --description "on-demand backup $ts${2:+: $2}" \
+    --description "on-demand backup $_create_snapshot_ts${2:+: $2}" \
     --tag-specifications "ResourceType=snapshot,Tags=[{Key=Project,Value=gramps-web},{Key=Name,Value=gramps-data-ondemand}]" \
     --query 'SnapshotId' --output text
 }
 
 # $1 = snapshot id. The upload runs server-side; the app is already back up.
 wait_for_snapshot() {
-  local state
   log "Waiting for $1 to complete (upload runs server-side)..."
   if aws ec2 wait snapshot-completed --region "$REGION" --snapshot-ids "$1"; then
     return 0
   fi
-  state="$(aws ec2 describe-snapshots --region "$REGION" \
+  _wait_for_snapshot_state="$(aws ec2 describe-snapshots --region "$REGION" \
     --snapshot-ids "$1" --query 'Snapshots[0].State' --output text)"
-  [ "$state" != "error" ] ||
+  [ "$_wait_for_snapshot_state" != "error" ] ||
     die "snapshot $1 failed (state: error); NO backup exists"
-  die "snapshot $1 still '$state' after ~10 min; the app is back up. Re-check with:
+  die "snapshot $1 still '$_wait_for_snapshot_state' after ~10 min; the app is back up. Re-check with:
   aws ec2 wait snapshot-completed --region $REGION --snapshot-ids $1"
 }
 
 cmd_snapshot() {
-  local reason vol state snap
+  _cmd_snapshot_reason=""
   [ "$#" -le 1 ] || die "usage: $0 snapshot [reason]"
-  reason="${1:-}"
+  _cmd_snapshot_reason="${1:-}"
 
-  vol="$(tf_output ebs_volume_id)"
-  state="$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$vol" \
+  _cmd_snapshot_vol="$(tf_output ebs_volume_id)"
+  _cmd_snapshot_state="$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$_cmd_snapshot_vol" \
     --query 'Volumes[0].State' --output text)"
 
   trap cleanup EXIT
 
-  case "$state" in
-  available) log "Volume $vol is detached: snapshotting cold, no downtime." ;;
-  in-use) quiesce_app "$vol" ;;
-  *) die "volume $vol is in state '$state'; refusing to snapshot" ;;
+  case "$_cmd_snapshot_state" in
+  available) log "Volume $_cmd_snapshot_vol is detached: snapshotting cold, no downtime." ;;
+  in-use) quiesce_app "$_cmd_snapshot_vol" ;;
+  *) die "volume $_cmd_snapshot_vol is in state '$_cmd_snapshot_state'; refusing to snapshot" ;;
   esac
 
-  log "Creating snapshot of $vol..."
-  snap="$(create_snapshot "$vol" "$reason")"
-  log "Snapshot $snap initiated; its point-in-time is now locked in."
+  log "Creating snapshot of $_cmd_snapshot_vol..."
+  _cmd_snapshot_snap="$(create_snapshot "$_cmd_snapshot_vol" "$_cmd_snapshot_reason")"
+  log "Snapshot $_cmd_snapshot_snap initiated; its point-in-time is now locked in."
 
   if [ "$APP_STOPPED" = 1 ]; then
     start_app
     APP_STOPPED=0
   fi
 
-  wait_for_snapshot "$snap"
-  log "Backup complete: $snap"
+  wait_for_snapshot "$_cmd_snapshot_snap"
+  log "Backup complete: $_cmd_snapshot_snap"
   log "This snapshot is local-only and on NO retention clock; delete it when stale:"
-  log "  aws ec2 delete-snapshot --region $REGION --snapshot-id $snap"
+  log "  aws ec2 delete-snapshot --region $REGION --snapshot-id $_cmd_snapshot_snap"
   log "To restore it into a volume, see docs/az-move.md."
 }
 
@@ -223,8 +216,7 @@ cmd_snapshot() {
 # start_backup_job RESOURCE_ARN LABEL REASON RETENTION -> backup job id.
 # --lifecycle is not optional: without it the recovery point never expires.
 start_backup_job() {
-  local tags
-  tags="$(jq -n --arg r "$3" '
+  _start_backup_job_tags="$(jq -n --arg r "$3" '
     {Project: "gramps-web", Name: "gramps-web-ondemand"}
     + (if $r == "" then {} else {Reason: $r} end)')"
   log "Starting backup job: $2 (retention ${4}d)"
@@ -233,7 +225,7 @@ start_backup_job() {
     --resource-arn "$1" \
     --iam-role-arn "$ROLE" \
     --lifecycle "DeleteAfterDays=$4" \
-    --recovery-point-tags "$tags" \
+    --recovery-point-tags "$_start_backup_job_tags" \
     --query 'BackupJobId' --output text
 }
 
@@ -260,39 +252,35 @@ job_recovery_point() {
 }
 
 cmd_run() {
-  local reason account lifecycle retention remote_retention
-  local primary_label primary_arn s3_arn primary_job s3_job primary_rp s3_rp primary_copy s3_copy
+  _cmd_run_reason=""
   [ "$#" -le 1 ] || die "usage: $0 run [reason]"
-  reason="${1:-}"
+  _cmd_run_reason="${1:-}"
 
-  account="$(resolve_account)"
-  ROLE="arn:aws:iam::${account}:role/${BACKUP_ROLE_NAME}"
+  _cmd_run_account="$(resolve_account)"
+  ROLE="arn:aws:iam::${_cmd_run_account}:role/${BACKUP_ROLE_NAME}"
   readonly ROLE
 
-  VAULT="$(tf_output_opt backup_vault_name)"
+  VAULT="$(resolve_vault)"
   readonly VAULT
-  [ -n "$VAULT" ] ||
-    die "no backup vault for '$ENV': backup.mode is 'disabled' in $TFVARS
-(or the stack is not applied). Nothing to back up into."
 
   DEST="$(tf_output_opt backup_copy_vault_arn)"
   readonly DEST
 
-  lifecycle="$(resolve_plan_retention "$REGION")"
-  retention="$(printf '%s' "$lifecycle" | cut -f1)"
-  remote_retention="$(printf '%s' "$lifecycle" | cut -f2)"
+  _cmd_run_lifecycle="$(resolve_plan_retention "$REGION")"
+  _cmd_run_retention="$(printf '%s' "$_cmd_run_lifecycle" | cut -f1)"
+  _cmd_run_remote_retention="$(printf '%s' "$_cmd_run_lifecycle" | cut -f2)"
   # Belt and braces: a copy destination with no copy_action retention would mean
   # the plan and the stack's mode disagree, and copying without a retention is
   # the one mistake this script exists to prevent.
-  [ -z "$DEST" ] || [ "$remote_retention" != None ] ||
+  [ -z "$DEST" ] || [ "$_cmd_run_remote_retention" != None ] ||
     die "plan '$BACKUP_PLAN_NAME' has no copy_action retention, but the stack
 declares a copy destination ($DEST). Apply the '$ENV' stack before running this."
 
-  primary_label="EBS data volume"
-  primary_arn="$(tf_output ebs_volume_arn)"
-  s3_arn="$(tf_output media_bucket_arn)"
+  _cmd_run_primary_label="EBS data volume"
+  _cmd_run_primary_arn="$(tf_output ebs_volume_arn)"
+  _cmd_run_s3_arn="$(tf_output media_bucket_arn)"
 
-  log "Vault:   $VAULT ($REGION, account $account)"
+  log "Vault:   $VAULT ($REGION, account $_cmd_run_account)"
   if [ -n "$DEST" ]; then
     log "Copy to: $DEST"
   else
@@ -301,26 +289,26 @@ declares a copy destination ($DEST). Apply the '$ENV' stack before running this.
   fi
   log "This is CRASH-consistent, like the daily plan. The site stays up."
   log "For an app-consistent point instead, see: $0 snapshot"
-  confirm "Take an on-demand recovery point of the $primary_label and the media bucket?"
+  confirm "Take an on-demand recovery point of the $_cmd_run_primary_label and the media bucket?"
 
   # Both jobs start before either is waited on: the S3 half runs 20-30 min
   # and the primary half a few, so serialising them would add the primary's
   # time for nothing.
-  primary_job="$(start_backup_job "$primary_arn" "$primary_label" "$reason" "$retention")"
-  s3_job="$(start_backup_job "$s3_arn" "S3 media bucket" "$reason" "$retention")"
+  _cmd_run_primary_job="$(start_backup_job "$_cmd_run_primary_arn" "$_cmd_run_primary_label" "$_cmd_run_reason" "$_cmd_run_retention")"
+  _cmd_run_s3_job="$(start_backup_job "$_cmd_run_s3_arn" "S3 media bucket" "$_cmd_run_reason" "$_cmd_run_retention")"
 
-  log "Backup jobs started: $primary_label=$primary_job S3=$s3_job"
+  log "Backup jobs started: $_cmd_run_primary_label=$_cmd_run_primary_job S3=$_cmd_run_s3_job"
   log "The S3 job sits at 0% for most of 20-30 min -- AWS Backup's S3 jobs are"
   log "dominated by fixed per-job setup, not by data. That is not a hang."
 
-  poll_job "$primary_label backup" "$BACKUP_TICKS" "$primary_job" backup "$REGION"
-  poll_job "S3 media bucket backup" "$BACKUP_TICKS" "$s3_job" backup "$REGION"
+  poll_job "$_cmd_run_primary_label backup" "$BACKUP_TICKS" "$_cmd_run_primary_job" backup "$REGION"
+  poll_job "S3 media bucket backup" "$BACKUP_TICKS" "$_cmd_run_s3_job" backup "$REGION"
 
-  primary_rp="$(job_recovery_point "$primary_job")"
-  s3_rp="$(job_recovery_point "$s3_job")"
+  _cmd_run_primary_rp="$(job_recovery_point "$_cmd_run_primary_job")"
+  _cmd_run_s3_rp="$(job_recovery_point "$_cmd_run_s3_job")"
   log "Recovery points in $VAULT:"
-  log "  $primary_label: $primary_rp"
-  log "  S3:  $s3_rp"
+  log "  $_cmd_run_primary_label: $_cmd_run_primary_rp"
+  log "  S3:  $_cmd_run_s3_rp"
 
   if [ -z "$DEST" ]; then
     log "Done. No copy configured (backup.mode = local)."
@@ -331,16 +319,16 @@ declares a copy destination ($DEST). Apply the '$ENV' stack before running this.
   # plan-driven jobs only, so these recovery points would otherwise expire in
   # the local vault having never gone off-site -- which would make an on-demand
   # backup silently weaker than a scheduled one, in the one way that matters.
-  primary_copy="$(start_copy_job "$primary_rp" "$primary_label" "$remote_retention")"
-  s3_copy="$(start_copy_job "$s3_rp" "S3 media bucket" "$remote_retention")"
+  _cmd_run_primary_copy="$(start_copy_job "$_cmd_run_primary_rp" "$_cmd_run_primary_label" "$_cmd_run_remote_retention")"
+  _cmd_run_s3_copy="$(start_copy_job "$_cmd_run_s3_rp" "S3 media bucket" "$_cmd_run_remote_retention")"
 
-  log "Copy jobs started: $primary_label=$primary_copy S3=$s3_copy (outbound runs 2-5 min)"
-  poll_job "$primary_label copy" "$COPY_TICKS" "$primary_copy" copy "$REGION"
-  poll_job "S3 media bucket copy" "$COPY_TICKS" "$s3_copy" copy "$REGION"
+  log "Copy jobs started: $_cmd_run_primary_label=$_cmd_run_primary_copy S3=$_cmd_run_s3_copy (outbound runs 2-5 min)"
+  poll_job "$_cmd_run_primary_label copy" "$COPY_TICKS" "$_cmd_run_primary_copy" copy "$REGION"
+  poll_job "S3 media bucket copy" "$COPY_TICKS" "$_cmd_run_s3_copy" copy "$REGION"
 
   log "Done. Both resources are backed up locally and copied to:"
   log "  $DEST"
-  log "Local copies expire in ${retention}d, remote in ${remote_retention}d."
+  log "Local copies expire in ${_cmd_run_retention}d, remote in ${_cmd_run_remote_retention}d."
   # `status` cannot show the far side: listing another account's vault needs
   # that account's credentials, which is the isolation working as designed.
   log "Confirm the far side from the DESTINATION account's profile:"
@@ -352,34 +340,31 @@ declares a copy destination ($DEST). Apply the '$ENV' stack before running this.
 # --- status ------------------------------------------------------------------
 
 cmd_status() {
-  local vault dest snaps
   [ "$#" -eq 0 ] || die "usage: $0 status"
 
-  vault="$(tf_output_opt backup_vault_name)"
-  [ -n "$vault" ] ||
-    die "no backup vault for '$ENV': backup.mode is 'disabled' in $TFVARS."
-  dest="$(tf_output_opt backup_copy_vault_arn)"
+  _cmd_status_vault="$(resolve_vault)"
+  _cmd_status_dest="$(tf_output_opt backup_copy_vault_arn)"
 
-  log "=== Recent backup jobs ($vault, $REGION) ==="
+  log "=== Recent backup jobs ($_cmd_status_vault, $REGION) ==="
   aws backup list-backup-jobs --region "$REGION" \
-    --by-backup-vault-name "$vault" --max-results 10 \
+    --by-backup-vault-name "$_cmd_status_vault" --max-results 10 \
     --query 'reverse(sort_by(BackupJobs, &CreationDate))[].[CreationDate,ResourceType,State,PercentDone]' \
     --output table
 
-  if [ -n "$dest" ]; then
-    log "=== Recent copy jobs -> $dest ==="
+  if [ -n "$_cmd_status_dest" ]; then
+    log "=== Recent copy jobs -> $_cmd_status_dest ==="
     # A copy job stuck in CREATED here is the documented trap: outbound is
     # 2-5 min, but a copy BACK from the backup account runs 4-6 HOURS in
     # CREATED with no status message. Do not read CREATED as broken.
     aws backup list-copy-jobs --region "$REGION" \
-      --by-destination-vault-arn "$dest" --max-results 10 \
+      --by-destination-vault-arn "$_cmd_status_dest" --max-results 10 \
       --query 'reverse(sort_by(CopyJobs, &CreationDate))[].[CreationDate,ResourceType,State,StatusMessage]' \
       --output table
   fi
 
-  log "=== Recovery points in $vault ==="
+  log "=== Recovery points in $_cmd_status_vault ==="
   aws backup list-recovery-points-by-backup-vault --region "$REGION" \
-    --backup-vault-name "$vault" \
+    --backup-vault-name "$_cmd_status_vault" \
     --query 'reverse(sort_by(RecoveryPoints, &CreationDate))[:10].[CreationDate,ResourceType,Status,RecoveryPointArn]' \
     --output table
 
@@ -388,12 +373,12 @@ cmd_status() {
   # prints NOTHING for an empty list, which reads as a broken command rather
   # than as "you have no stale snapshots".
   log "=== Raw on-demand snapshots from '$0 snapshot' (NO retention clock) ==="
-  snaps="$(aws ec2 describe-snapshots --region "$REGION" --owner-ids self \
+  _cmd_status_snaps="$(aws ec2 describe-snapshots --region "$REGION" --owner-ids self \
     --filters "Name=tag:Name,Values=gramps-data-ondemand" \
     --query 'reverse(sort_by(Snapshots, &StartTime))[].[StartTime,SnapshotId,State,Description]' \
     --output table)"
-  if [ -n "$snaps" ]; then
-    echo "$snaps"
+  if [ -n "$_cmd_status_snaps" ]; then
+    echo "$_cmd_status_snaps"
     log "Delete any you no longer want: aws ec2 delete-snapshot --region $REGION --snapshot-id <id>"
   else
     log "(none -- nothing to clean up)"
@@ -403,16 +388,18 @@ cmd_status() {
 # --- dispatch ----------------------------------------------------------------
 
 main() {
-  local cmd
   require aws terraform jq
+  select_root "$@"
+  shift "$ROOT_SHIFT"
+  init_root
   [ "$#" -ge 1 ] || usage
-  cmd="$1"
+  _main_cmd="$1"
   shift
-  case "$cmd" in
+  case "$_main_cmd" in
   snapshot) cmd_snapshot "$@" ;;
   run) cmd_run "$@" ;;
   status) cmd_status "$@" ;;
-  *) die "unknown subcommand '$cmd' (expected: snapshot|run|status)" ;;
+  *) die "unknown subcommand '$_main_cmd' (expected: snapshot|run|status)" ;;
   esac
 }
 

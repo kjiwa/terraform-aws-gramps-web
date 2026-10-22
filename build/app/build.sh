@@ -3,7 +3,7 @@
 # pushes a multi-arch index to ECR, and writes the digest-pinned reference into
 # bundle/gramps.env for the CodeDeploy bundle beside it. Runs inside the app
 # pipeline's CodeBuild (privileged mode, for docker). Every input arrives as an
-# environment variable set by the CodeBuild project from tfvars; nothing is
+# environment variable set by the CodeBuild project from the module variables; nothing is
 # read from Terraform state.
 #
 # Required env:
@@ -28,7 +28,7 @@ SCRIPT_DIR=$(
   cd -- "$(dirname -- "$0")" && pwd
 )
 # This component is two levels down; $REPO_ROOT exists only to reach
-# scripts/common.sh. Everything this script touches lives in $SCRIPT_DIR, which
+# scripts/keel/common.sh. Everything this script touches lives in $SCRIPT_DIR, which
 # is also the docker build context: the staging dirs must sit beside the
 # Dockerfile for its COPYs to see them, and .dockerignore (which whitelists
 # exactly those two) is only read from the context root.
@@ -51,15 +51,14 @@ readonly LOG_PREFIX SCRIPT_DIR REPO_ROOT ADDONS ADDONS_SOURCE_REPO \
   BASE_IMAGE GRAMPS_WEB_REPO GRAMPS_WEB_REF STAGE_DIR SOURCE_DIR \
   FRONTEND_STAGE_DIR FRONTEND_SOURCE_DIR BUNDLE_ENV PLATFORMS
 
-# shellcheck source=../../scripts/common.sh
-. "$REPO_ROOT/scripts/common.sh"
+# shellcheck source=../../scripts/keel/common.sh
+. "$REPO_ROOT/scripts/keel/common.sh"
 
 ecr_login() {
-  local registry
-  registry=${ECR_REPO_URL%%/*}
-  log "authenticating to ECR (${registry})..."
+  _ecr_login_registry=${ECR_REPO_URL%%/*}
+  log "authenticating to ECR (${_ecr_login_registry})..."
   aws ecr get-login-password --region "$AWS_DEFAULT_REGION" |
-    docker login --username AWS --password-stdin "$registry"
+    docker login --username AWS --password-stdin "$_ecr_login_registry"
 }
 
 # The addon branch and the plugin path both key off the base image's Gramps
@@ -67,24 +66,23 @@ ecr_login() {
 # the image so the mapping is never hand-maintained. --entrypoint bypasses the
 # image's gunicorn/celery launcher.
 detect_series() {
-  local series
   # The || die keeps a docker failure from killing the script via set -e
   # before the diagnostic prints.
-  series=$(docker run --rm --entrypoint python3 "$BASE_IMAGE:$GRAMPS_WEB_VERSION" \
+  _detect_series_series=$(docker run --rm --entrypoint python3 "$BASE_IMAGE:$GRAMPS_WEB_VERSION" \
     -c 'import gramps.version as v; p=v.VERSION.split("."); print(p[0]+p[1])') ||
     die "could not read Gramps version from $BASE_IMAGE:$GRAMPS_WEB_VERSION"
-  [ -n "$series" ] || die "could not read Gramps version from $BASE_IMAGE:$GRAMPS_WEB_VERSION"
-  echo "$series"
+  [ -n "$_detect_series_series" ] || die "could not read Gramps version from $BASE_IMAGE:$GRAMPS_WEB_VERSION"
+  echo "$_detect_series_series"
 }
 
 # Clone addons-source at the matching maintenance branch and copy each addon
-# named in $ADDONS (space-separated, from gramps_addons in tfvars) into the
+# named in $ADDONS (space-separated, from gramps.addons) into the
 # build stage. Gramps loads plugins straight from source (.gpr.py/.py), so no
 # make.py packaging or .mo compilation is required. An empty $ADDONS is valid:
 # the stage dir is created empty and the image is the plain upstream release.
 stage_addons() {
-  local branch addon
-  branch="maintenance/gramps$SERIES"
+  _stage_addons_addon=""
+  _stage_addons_branch="maintenance/gramps$SERIES"
   rm -rf "$SOURCE_DIR" "$STAGE_DIR"
   mkdir -p "$STAGE_DIR"
 
@@ -93,17 +91,17 @@ stage_addons() {
     return 0
   fi
 
-  log "cloning addons-source ($branch)..."
-  git clone --quiet --depth 1 --branch "$branch" "$ADDONS_SOURCE_REPO" "$SOURCE_DIR"
+  log "cloning addons-source ($_stage_addons_branch)..."
+  git clone --quiet --depth 1 --branch "$_stage_addons_branch" "$ADDONS_SOURCE_REPO" "$SOURCE_DIR"
 
   # Word splitting is the interface; names are validated ([A-Za-z0-9._-]) by
   # the gramps_addons variable before they reach this env var.
   # shellcheck disable=SC2086
-  for addon in $ADDONS; do
-    [ -d "$SOURCE_DIR/$addon" ] ||
-      die "addon '$addon' not found at root of addons-source $branch"
-    log "staging addon: $addon"
-    cp -R "$SOURCE_DIR/$addon" "$STAGE_DIR/$addon"
+  for _stage_addons_addon in $ADDONS; do
+    [ -d "$SOURCE_DIR/$_stage_addons_addon" ] ||
+      die "addon '$_stage_addons_addon' not found at root of addons-source $_stage_addons_branch"
+    log "staging addon: $_stage_addons_addon"
+    cp -R "$SOURCE_DIR/$_stage_addons_addon" "$STAGE_DIR/$_stage_addons_addon"
   done
 
   rm -rf "$SOURCE_DIR"
@@ -141,9 +139,8 @@ stage_frontend() {
 }
 
 build_and_push() {
-  local tag
-  tag="$ECR_REPO_URL:$GRAMPS_WEB_VERSION"
-  log "building $tag for $PLATFORMS..."
+  _build_and_push_tag="$ECR_REPO_URL:$GRAMPS_WEB_VERSION"
+  log "building $_build_and_push_tag for $PLATFORMS..."
   # Reuse the builder when it exists; create it (loudly) when it does not.
   # The other order swallows the create error and re-fails with a misleading
   # "no builder" message from use.
@@ -154,7 +151,7 @@ build_and_push() {
     --build-arg "BASE_IMAGE=$BASE_IMAGE" \
     --build-arg "GRAMPS_WEB_VERSION=$GRAMPS_WEB_VERSION" \
     --build-arg "GRAMPS_SERIES=$SERIES" \
-    --tag "$tag" \
+    --tag "$_build_and_push_tag" \
     --push \
     "$SCRIPT_DIR"
 }
@@ -163,19 +160,18 @@ build_and_push() {
 # the bundle. The index digest is arch-agnostic; the instance's docker selects
 # the right per-arch manifest at pull time.
 write_bundle_env() {
-  local repo digest
   # Strip the registry host only: ECR repo names may themselves contain '/'.
-  repo=${ECR_REPO_URL#*/}
-  digest=$(aws ecr describe-images \
-    --repository-name "$repo" \
+  _write_bundle_env_repo=${ECR_REPO_URL#*/}
+  _write_bundle_env_digest=$(aws ecr describe-images \
+    --repository-name "$_write_bundle_env_repo" \
     --image-ids "imageTag=$GRAMPS_WEB_VERSION" \
     --region "$AWS_DEFAULT_REGION" \
     --query 'imageDetails[0].imageDigest' --output text)
-  if [ -z "$digest" ] || [ "$digest" = "None" ]; then
+  if [ -z "$_write_bundle_env_digest" ] || [ "$_write_bundle_env_digest" = "None" ]; then
     die "could not resolve pushed image digest for tag $GRAMPS_WEB_VERSION"
   fi
-  printf 'GRAMPS_IMAGE=%s@%s\n' "$ECR_REPO_URL" "$digest" >"$BUNDLE_ENV"
-  log "pinned image: $ECR_REPO_URL@$digest"
+  printf 'GRAMPS_IMAGE=%s@%s\n' "$ECR_REPO_URL" "$_write_bundle_env_digest" >"$BUNDLE_ENV"
+  log "pinned image: $ECR_REPO_URL@$_write_bundle_env_digest"
 }
 
 main() {

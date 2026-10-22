@@ -25,8 +25,8 @@ SCRIPT_DIR="$(
 readonly SCRIPT_DIR
 REPO_ROOT="$(dirname -- "$SCRIPT_DIR")"
 readonly REPO_ROOT
-# shellcheck source=common.sh
-. "$SCRIPT_DIR/common.sh"
+# shellcheck source=keel/common.sh
+. "$SCRIPT_DIR/keel/common.sh"
 
 BEHIND=0
 
@@ -55,41 +55,36 @@ report() {
 }
 
 check_packer() {
-  local current latest
-  current="$(sed -n 's/^readonly PACKER_VERSION="\(.*\)"$/\1/p' "$REPO_ROOT/build/ami/build.sh")"
-  latest="$(latest_gh_release hashicorp/packer)"
-  report "Packer CLI (build.sh)" "$current" "$latest"
+  _check_packer_current="$(sed -n 's/^readonly PACKER_VERSION="\(.*\)"$/\1/p' "$REPO_ROOT/build/ami/build.sh")"
+  _check_packer_latest="$(latest_gh_release hashicorp/packer)"
+  report "Packer CLI (build.sh)" "$_check_packer_current" "$_check_packer_latest"
 }
 
 check_amazon_plugin() {
-  local current latest
-  current="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)"$/\1/p' \
+  _check_amazon_plugin_current="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)"$/\1/p' \
     "$REPO_ROOT/build/ami/gramps-ami.pkr.hcl" | head -n 1)"
-  latest="$(latest_gh_release hashicorp/packer-plugin-amazon)"
-  report "packer-plugin-amazon (gramps-ami.pkr.hcl)" "$current" "$latest"
+  _check_amazon_plugin_latest="$(latest_gh_release hashicorp/packer-plugin-amazon)"
+  report "packer-plugin-amazon (gramps-ami.pkr.hcl)" "$_check_amazon_plugin_current" "$_check_amazon_plugin_latest"
 }
 
 check_terraform() {
-  local current latest
-  current="$(cat "$REPO_ROOT/.terraform-version")"
-  latest="$(latest_gh_release hashicorp/terraform)"
-  report "Terraform CLI (.terraform-version)" "$current" "$latest"
+  _check_terraform_current="$(cat "$REPO_ROOT/.terraform-version")"
+  _check_terraform_latest="$(latest_gh_release hashicorp/terraform)"
+  report "Terraform CLI (.terraform-version)" "$_check_terraform_current" "$_check_terraform_latest"
 }
 
 check_tflint() {
-  local current latest
-  current="$(sed -n 's/^[[:space:]]*tflint_version:[[:space:]]*v\(.*\)$/\1/p' \
+  _check_tflint_current="$(sed -n 's/^[[:space:]]*tflint_version:[[:space:]]*v\(.*\)$/\1/p' \
     "$REPO_ROOT/.github/workflows/terraform.yml")"
-  latest="$(latest_gh_release terraform-linters/tflint)"
-  report "tflint (terraform.yml)" "$current" "$latest"
+  _check_tflint_latest="$(latest_gh_release terraform-linters/tflint)"
+  report "tflint (terraform.yml)" "$_check_tflint_current" "$_check_tflint_latest"
 }
 
 check_tflint_ruleset_aws() {
-  local current latest
-  current="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)"$/\1/p' \
+  _check_tflint_ruleset_aws_current="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)"$/\1/p' \
     "$REPO_ROOT/.tflint.hcl")"
-  latest="$(latest_gh_release terraform-linters/tflint-ruleset-aws)"
-  report "tflint AWS ruleset (.tflint.hcl)" "$current" "$latest"
+  _check_tflint_ruleset_aws_latest="$(latest_gh_release terraform-linters/tflint-ruleset-aws)"
+  report "tflint AWS ruleset (.tflint.hcl)" "$_check_tflint_ruleset_aws_current" "$_check_tflint_ruleset_aws_latest"
 }
 
 # The default of the gramps.version variable must track the newest upstream
@@ -103,10 +98,9 @@ check_gramps_web() {
 }
 
 check_gitleaks() {
-  local current latest
-  current="$(sed -n 's/^          GITLEAKS_VERSION: \(.*\)$/\1/p' "$REPO_ROOT/.github/workflows/ci.yml")"
-  latest="$(latest_gh_release gitleaks/gitleaks)"
-  report "gitleaks (ci.yml)" "$current" "$latest"
+  _check_gitleaks_current="$(sed -n 's/^          GITLEAKS_VERSION: \(.*\)$/\1/p' "$REPO_ROOT/.github/workflows/ci.yml")"
+  _check_gitleaks_latest="$(latest_gh_release gitleaks/gitleaks)"
+  report "gitleaks (ci.yml)" "$_check_gitleaks_current" "$_check_gitleaks_latest"
 }
 
 # Docker Hub's tag list, newest-first is not guaranteed, so this reads every
@@ -115,22 +109,22 @@ check_gitleaks() {
 # vs "9-alpine" distinguishes), so string comparison of the leading digit is
 # the whole test.
 check_valkey() {
-  local current latest page url
-  current="$(sed -n 's#.*docker\.io/valkey/valkey:\([0-9]*-alpine\).*#\1#p' \
+  _check_valkey_page=""
+  _check_valkey_current="$(sed -n 's#.*docker\.io/valkey/valkey:\([0-9]*-alpine\).*#\1#p' \
     "$REPO_ROOT/build/app/bundle/docker-compose.yml" | head -n 1)"
-  latest="$current"
-  url="https://hub.docker.com/v2/repositories/valkey/valkey/tags?page_size=100"
-  while [ -n "$url" ] && [ "$url" != "null" ]; do
-    page="$(curl -fsSL "$url")"
-    latest="$(printf '%s\n%s' "$latest" "$(echo "$page" | jq -r '.results[].name')" |
+  _check_valkey_latest="$_check_valkey_current"
+  _check_valkey_url="https://hub.docker.com/v2/repositories/valkey/valkey/tags?page_size=100"
+  while [ -n "$_check_valkey_url" ] && [ "$_check_valkey_url" != "null" ]; do
+    _check_valkey_page="$(curl -fsSL "$_check_valkey_url")"
+    _check_valkey_latest="$(printf '%s\n%s' "$_check_valkey_latest" "$(echo "$_check_valkey_page" | jq -r '.results[].name')" |
       grep -E '^[0-9]+-alpine$' | sort -t- -k1,1n | tail -n1)"
-    url="$(echo "$page" | jq -r '.next')"
+    _check_valkey_url="$(echo "$_check_valkey_page" | jq -r '.next')"
   done
-  if [ "$current" != "$latest" ]; then
-    log "valkey (docker-compose.yml): $current -> $latest available -- bump needs an AMI rebuild to keep the pre-pull (build/ami/install.sh)"
+  if [ "$_check_valkey_current" != "$_check_valkey_latest" ]; then
+    log "valkey (docker-compose.yml): $_check_valkey_current -> $_check_valkey_latest available -- bump needs an AMI rebuild to keep the pre-pull (build/ami/install.sh)"
     BEHIND=$((BEHIND + 1))
   else
-    log "valkey (docker-compose.yml): $current (up to date)"
+    log "valkey (docker-compose.yml): $_check_valkey_current (up to date)"
   fi
 }
 

@@ -18,8 +18,8 @@ SCRIPT_DIR="$(
 readonly SCRIPT_DIR
 REPO_ROOT="$(dirname -- "$SCRIPT_DIR")"
 readonly REPO_ROOT
-# shellcheck source=common.sh
-. "$SCRIPT_DIR/common.sh"
+# shellcheck source=keel/common.sh
+. "$SCRIPT_DIR/keel/common.sh"
 
 _sha256_for() {
   case "$1" in

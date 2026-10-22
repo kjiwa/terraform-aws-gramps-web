@@ -45,23 +45,21 @@ load_env() {
 }
 
 app_healthy() {
-  local code
-  code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 "$URL" || echo 000)"
-  case "$code" in
+  _app_healthy_code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 "$URL" || echo 000)"
+  case "$_app_healthy_code" in
   2[0-9][0-9] | 3[0-9][0-9]) return 0 ;;
   esac
-  log "Local check failed (HTTP $code)."
+  log "Local check failed (HTTP $_app_healthy_code)."
   return 1
 }
 
 # Consecutive-failure count, in /run so a reboot starts clean. Echoes the new
 # count.
 bump_failures() {
-  local count
-  count="$(cat "$COUNT_FILE" 2>/dev/null || echo 0)"
-  count=$((count + 1))
-  echo "$count" >"$COUNT_FILE"
-  echo "$count"
+  _bump_failures_count="$(cat "$COUNT_FILE" 2>/dev/null || echo 0)"
+  _bump_failures_count=$((_bump_failures_count + 1))
+  echo "$_bump_failures_count" >"$COUNT_FILE"
+  echo "$_bump_failures_count"
 }
 
 # $1: mountpoint. Echoes "<bytes used> <filesystem size in bytes>". df
@@ -69,10 +67,9 @@ bump_failures() {
 # for the values to be short (confirmed against /dev/shm), so the two fields
 # are split via unquoted word-splitting (set --), not fixed-width slicing.
 disk_bytes() {
-  local mount
-  mount="$1"
+  _disk_bytes_mount="$1"
   # shellcheck disable=SC2046 # word-splitting is the point: two digit fields.
-  set -- $(df -B1 --output=used,size "$mount" | tail -1)
+  set -- $(df -B1 --output=used,size "$_disk_bytes_mount" | tail -1)
   printf '%s %s\n' "$1" "$2"
 }
 
@@ -96,36 +93,36 @@ disk_bytes() {
 # publishes DiskUsedPercent, as this script is Packer-baked and takes effect
 # on the next base-AMI rebuild.
 publish_host_metrics() {
-  local mem_pct now stamp_mtime disk_pct data_used data_size root_used root_size
+  _publish_host_metrics_disk_pct="" _publish_host_metrics_data_used="" _publish_host_metrics_data_size="" _publish_host_metrics_root_used="" _publish_host_metrics_root_size=""
 
   [ "${STATUS_HOST_METRICS:-false}" = "true" ] || return 0
 
-  now="$(date +%s)"
-  stamp_mtime="$(stat -c%Y "$METRICS_STAMP" 2>/dev/null || echo 0)"
-  [ "$((now - stamp_mtime))" -ge 300 ] || return 0
+  _publish_host_metrics_now="$(date +%s)"
+  _publish_host_metrics_stamp_mtime="$(stat -c%Y "$METRICS_STAMP" 2>/dev/null || echo 0)"
+  [ "$((_publish_host_metrics_now - _publish_host_metrics_stamp_mtime))" -ge 300 ] || return 0
 
-  mem_pct="$(awk '/^MemTotal:/ {t=$2} /^MemAvailable:/ {a=$2} END {if (t > 0) printf "%.1f", (t - a) / t * 100}' /proc/meminfo)"
+  _publish_host_metrics_mem_pct="$(awk '/^MemTotal:/ {t=$2} /^MemAvailable:/ {a=$2} END {if (t > 0) printf "%.1f", (t - a) / t * 100}' /proc/meminfo)"
 
   if [ "${STATUS_VOLUME_METRICS:-false}" = "true" ]; then
     # shellcheck disable=SC2046 # word-splitting is the point: two digit fields.
     set -- $(disk_bytes "$GRAMPS_DATA_ROOT")
-    data_used="$1"
-    data_size="$2"
+    _publish_host_metrics_data_used="$1"
+    _publish_host_metrics_data_size="$2"
     # shellcheck disable=SC2046
     set -- $(disk_bytes /)
-    root_used="$1"
-    root_size="$2"
+    _publish_host_metrics_root_used="$1"
+    _publish_host_metrics_root_size="$2"
     set -- \
-      "MetricName=DiskUsedBytes,Dimensions=[{Name=Mount,Value=data}],Value=${data_used:-0},Unit=Bytes" \
-      "MetricName=DiskTotalBytes,Dimensions=[{Name=Mount,Value=data}],Value=${data_size:-0},Unit=Bytes" \
-      "MetricName=DiskUsedBytes,Dimensions=[{Name=Mount,Value=root}],Value=${root_used:-0},Unit=Bytes" \
-      "MetricName=DiskTotalBytes,Dimensions=[{Name=Mount,Value=root}],Value=${root_size:-0},Unit=Bytes" \
-      "MetricName=MemUsedPercent,Value=${mem_pct:-0},Unit=Percent"
+      "MetricName=DiskUsedBytes,Dimensions=[{Name=Mount,Value=data}],Value=${_publish_host_metrics_data_used:-0},Unit=Bytes" \
+      "MetricName=DiskTotalBytes,Dimensions=[{Name=Mount,Value=data}],Value=${_publish_host_metrics_data_size:-0},Unit=Bytes" \
+      "MetricName=DiskUsedBytes,Dimensions=[{Name=Mount,Value=root}],Value=${_publish_host_metrics_root_used:-0},Unit=Bytes" \
+      "MetricName=DiskTotalBytes,Dimensions=[{Name=Mount,Value=root}],Value=${_publish_host_metrics_root_size:-0},Unit=Bytes" \
+      "MetricName=MemUsedPercent,Value=${_publish_host_metrics_mem_pct:-0},Unit=Percent"
   else
-    disk_pct="$(df --output=pcent "$GRAMPS_DATA_ROOT" | tail -1 | tr -d ' %')"
+    _publish_host_metrics_disk_pct="$(df --output=pcent "$GRAMPS_DATA_ROOT" | tail -1 | tr -d ' %')"
     set -- \
-      "MetricName=DiskUsedPercent,Value=${disk_pct:-0},Unit=Percent" \
-      "MetricName=MemUsedPercent,Value=${mem_pct:-0},Unit=Percent"
+      "MetricName=DiskUsedPercent,Value=${_publish_host_metrics_disk_pct:-0},Unit=Percent" \
+      "MetricName=MemUsedPercent,Value=${_publish_host_metrics_mem_pct:-0},Unit=Percent"
   fi
 
   if aws cloudwatch put-metric-data \
@@ -139,7 +136,6 @@ publish_host_metrics() {
 }
 
 main() {
-  local count
   load_env
   # Never in the health-check path: app_healthy() below must reflect only the
   # localhost check, not an SSM outage. load_runtime_env is best-effort and
@@ -152,9 +148,9 @@ main() {
     return 0
   fi
 
-  count="$(bump_failures)"
-  log "$count/$THRESHOLD consecutive failures."
-  if [ "$count" -ge "$THRESHOLD" ]; then
+  _main_count="$(bump_failures)"
+  log "$_main_count/$THRESHOLD consecutive failures."
+  if [ "$_main_count" -ge "$THRESHOLD" ]; then
     # LAST_HEALTH_WATCHDOG_PARAM comes from instance.env (terraform's compute
     # module owns the parameter; see watchdog_markers.tf), written BEFORE the
     # ASG call so the outage this triggers can be attributed to the health

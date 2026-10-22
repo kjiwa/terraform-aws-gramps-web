@@ -5,7 +5,7 @@
 # as an escape hatch. Idempotent; safe to re-run.
 #
 # All inputs arrive as environment variables (the CodeBuild project injects
-# them from tfvars); nothing is read from Terraform state.
+# them from the module variables); nothing is read from Terraform state.
 #   ERRORS_BUCKET_NAME  error-pages S3 bucket (required)
 #   STATUS_BUCKET_NAME  status page shell's S3 bucket (optional; unset when
 #                        status.enabled = false, in which case the publish
@@ -34,8 +34,8 @@ REPO_ROOT=$(
 )
 readonly LOG_PREFIX SCRIPT_DIR REPO_ROOT
 
-# shellcheck source=../../scripts/common.sh
-. "$REPO_ROOT/scripts/common.sh"
+# shellcheck source=../../scripts/keel/common.sh
+. "$REPO_ROOT/scripts/keel/common.sh"
 
 build() {
   log "npm ci ..."

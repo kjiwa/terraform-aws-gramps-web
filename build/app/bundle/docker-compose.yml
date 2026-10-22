@@ -77,7 +77,7 @@ services:
       # Bedrock invocation (process_chat) runs only here. pydantic-ai builds
       # the bedrock-runtime client via boto3.Session, whose region resolves
       # from AWS_DEFAULT_REGION (AWS_REGION is NOT consulted on this path).
-      # CELERY_REGION (from tfvars, ultimately var.llm.region / local.llm_region)
+      # CELERY_REGION (ultimately var.llm.region / local.llm_region)
       # equals the deployment region unless the AI assistant is on and quotas
       # force another region; scoping the override to celery keeps the web
       # container's S3 presigning in the primary region.

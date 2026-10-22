@@ -15,7 +15,7 @@ version: 0.2
 
 phases:
   install:
-    # For the optional frontend override (gramps_web_repo in tfvars): pin the
+    # For the optional frontend override (gramps.web_repo): pin the
     # node the fork's dist is built with to what upstream's release workflow
     # uses. Selecting a preinstalled runtime is cheap, so it is unconditional.
     runtime-versions:

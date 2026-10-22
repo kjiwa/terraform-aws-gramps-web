@@ -3,18 +3,17 @@
 # from this directory's gramps-ami.pkr.hcl, then prints the newest AMI per
 # architecture as a ready-to-paste ami_ids block. Runs inside the gramps-web-ami
 # CodeBuild project (build/ami/buildspec.yml) and from a workstation. New AMIs
-# deploy nothing until pinned in ami_ids (tfvars) and applied.
+# deploy nothing until pinned in ami_ids and applied.
 #
 # Env:
-#   REGION              region to build in. CodeBuild injects it from
-#                        primary_region; workstation runs derive it from the
-#                        env's tfvars ($ENV, default prod), like the other
-#                        scripts.
+#   REGION              region to build in. CodeBuild injects it; workstation
+#                        runs derive it from the module's outputs, using
+#                        $GRAMPS_WEB_ROOT like the other scripts.
 #   GIT_SHA             commit tagged onto the AMIs. Defaults to
 #                        CODEBUILD_RESOLVED_SOURCE_VERSION, then git rev-parse
 #                        HEAD.
 #   ECR_REPO_URL        registry/repo the grampsweb pull is pinned to.
-#   GRAMPS_WEB_VERSION  tag to pull. Both injected by CodeBuild from tfvars;
+#   GRAMPS_WEB_VERSION  tag to pull. Both injected by CodeBuild;
 #                       empty on a workstation run pulls nothing (pull_images
 #                       logs and continues -- see build/ami/install.sh).
 set -eu
@@ -27,14 +26,15 @@ SCRIPT_DIR="$(
 )"
 readonly SCRIPT_DIR
 # This component is two levels down; $REPO_ROOT exists only to reach
-# scripts/common.sh and, through env_paths, terraform/config/stack/$ENV. The
-# packer files are addressed as $SCRIPT_DIR. Not git rev-parse: the source
+# scripts/ helpers. The packer files are addressed as $SCRIPT_DIR. Not git rev-parse: the source
 # artifact CodeBuild unpacks has no .git.
 REPO_ROOT="$(
   unset CDPATH
   cd -- "$SCRIPT_DIR/../.." && pwd
 )"
 readonly REPO_ROOT
+# shellcheck source=../../scripts/keel/common.sh
+. "$REPO_ROOT/scripts/keel/common.sh"
 # shellcheck source=../../scripts/common.sh
 . "$REPO_ROOT/scripts/common.sh"
 
@@ -49,46 +49,42 @@ readonly PACKER_DIR="/tmp/packer-$PACKER_VERSION"
 # SHA256SUMS (fetched alongside: guards a corrupt or truncated download, not
 # a compromised origin).
 install_packer() {
-  local zip
   case "$(uname -sm)" in
   "Linux x86_64") ;;
   *) die "no packer on PATH and auto-install only covers Linux x86_64; install packer" ;;
   esac
-  zip="packer_${PACKER_VERSION}_linux_amd64.zip"
+  _install_packer_zip="packer_${PACKER_VERSION}_linux_amd64.zip"
   log "installing packer $PACKER_VERSION..."
   mkdir -p "$PACKER_DIR"
   (
     cd "$PACKER_DIR"
-    curl -fsSLO "https://releases.hashicorp.com/packer/$PACKER_VERSION/$zip"
+    curl -fsSLO "https://releases.hashicorp.com/packer/$PACKER_VERSION/$_install_packer_zip"
     curl -fsSLO "https://releases.hashicorp.com/packer/$PACKER_VERSION/packer_${PACKER_VERSION}_SHA256SUMS"
-    grep " $zip\$" "packer_${PACKER_VERSION}_SHA256SUMS" | sha256sum -c -
-    unzip -oq "$zip" packer
+    grep " $_install_packer_zip\$" "packer_${PACKER_VERSION}_SHA256SUMS" | sha256sum -c -
+    unzip -oq "$_install_packer_zip" packer
   )
   PATH="$PACKER_DIR:$PATH"
 }
 
-# The newest gramps-web-base AMI per architecture, printed as the tfvars block
+# The newest gramps-web-base AMI per architecture, printed as the ami_ids block
 # the operator pins next.
 print_pin_candidates() {
-  local block
-  block="$(aws ec2 describe-images --region "$REGION" --owners self \
+  _print_pin_candidates_block="$(aws ec2 describe-images --region "$REGION" --owners self \
     --filters "Name=tag:Name,Values=gramps-web-base" "Name=state,Values=available" \
     --query 'Images[].{arch:Architecture,id:ImageId,date:CreationDate}' \
     --output json |
     jq -r 'group_by(.arch)[] | max_by(.date) | "  \(.arch) = \"\(.id)\""')"
-  log "newest gramps-web-base AMIs. To roll out: pin in terraform/config/stack/<env>/terraform.tfvars, apply."
-  printf 'ami_ids = {\n%s\n}\n' "$block" >&2
+  log "newest gramps-web-base AMIs. To roll out: pin them as the module's ami_ids, apply."
+  printf 'ami_ids = {\n%s\n}\n' "$_print_pin_candidates_block" >&2
 }
 
 main() {
   require curl unzip sha256sum aws jq
-  # The env's tfvars are consulted only to derive REGION, so only look for them
-  # when REGION is absent (the workstation case). CodeBuild always injects it,
-  # and resolving the env unconditionally would make this project depend on an
-  # env directory literally named prod -- breaking a fork whose env is not.
+  # The root is consulted only to derive REGION, so only when REGION is absent
+  # (the workstation case); CodeBuild always injects it.
   if [ -z "${REGION:-}" ]; then
-    env_paths
-    REGION="$(resolve_region "$TFVARS")"
+    select_root "$@"
+    init_root
   fi
   readonly REGION
   GIT_SHA="${GIT_SHA:-${CODEBUILD_RESOLVED_SOURCE_VERSION:-}}"

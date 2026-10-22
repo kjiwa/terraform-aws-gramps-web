@@ -40,7 +40,7 @@ variable "gramps_web_version" {
 locals {
   # Name is the stable tag every base AMI carries; both arches share it (the
   # architecture attribute disambiguates) and scripts/clean-amis.sh selects on
-  # it. The deployed AMI is pinned per arch in tfvars (ami_ids), not
+  # it. The deployed AMI is pinned per arch (ami_ids), not
   # discovered. git_sha records the commit the build ran from (empty:
   # untracked manual build). source_ami/source_ami_name are provenance for the
   # status page's image panel (modules/status): which upstream

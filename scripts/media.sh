@@ -31,10 +31,10 @@
 #                                 they would become. Changes nothing.
 #   ./media.sh flatten --apply   Rewrite them, with a confirm prompt.
 #
-# Env: ENV (default prod; selects terraform/config/stack/<env>), AWS_REGION
-#      (default: primary_region from the env's tfvars), FORCE=1 (skip the
-#      confirm prompts), MEDIA_USERNAME / MEDIA_PASSWORD (skip the login
-#      prompts).
+# Root: --root DIR, or $GRAMPS_WEB_ROOT, is the Terraform root that
+#       instantiates the module (see common.sh). Place it before the subcommand.
+# Env:  FORCE=1 (skip the confirm prompts), MEDIA_USERNAME / MEDIA_PASSWORD
+#       (skip the login prompts).
 #
 # The Gramps Web account used to log in must carry the ViewPrivate permission
 # for every subcommand, and EditObject for flatten. ViewPrivate matters even
@@ -49,10 +49,10 @@ SCRIPT_DIR="$(
   cd -- "$(dirname -- "$0")" && pwd
 )"
 readonly SCRIPT_DIR
-REPO_ROOT="$(dirname -- "$SCRIPT_DIR")"
-readonly REPO_ROOT
 
 readonly LOG_PREFIX="media"
+# shellcheck source=keel/common.sh
+. "$SCRIPT_DIR/keel/common.sh"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 
@@ -72,23 +72,8 @@ USERNAME=""
 PASSWORD=""
 
 usage() {
-  echo "usage: $0 orphans|gc|flatten [--apply]" >&2
+  echo "usage: $0 [--root DIR] orphans|gc|flatten [--apply]" >&2
   exit 2
-}
-
-# -> the media bucket name: the explicit tfvars value if set, else the
-# derived name modules/storage/main.tf falls back to. Mirrors that
-# module's locals.media_bucket_name exactly.
-media_bucket_name() {
-  local name
-  name="$(sed -n \
-    's/^[[:space:]]*media_bucket_name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
-    "$TFVARS" 2>/dev/null | head -n 1)"
-  if [ -n "$name" ]; then
-    echo "$name"
-  else
-    echo "gramps-web-media-$(resolve_account)"
-  fi
 }
 
 # in_list ITEM "a b c": ITEM is one of the space-separated words. Same idiom
@@ -110,16 +95,15 @@ api_login() {
 # api_call METHOD PATH [BODY] -> "response-body\nhttp-status". Requires
 # $TOKEN. PATH is relative to $API.
 api_call() {
-  local method path data
-  method="$1"
-  path="$2"
-  data="${3:-}"
-  if [ -n "$data" ]; then
-    curl -sS -w '\n%{http_code}' -X "$method" "$API$path" \
+  _api_call_method="$1"
+  _api_call_path="$2"
+  _api_call_data="${3:-}"
+  if [ -n "$_api_call_data" ]; then
+    curl -sS -w '\n%{http_code}' -X "$_api_call_method" "$API$_api_call_path" \
       -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-      --data "$data"
+      --data "$_api_call_data"
   else
-    curl -sS -w '\n%{http_code}' -X "$method" "$API$path" \
+    curl -sS -w '\n%{http_code}' -X "$_api_call_method" "$API$_api_call_path" \
       -H "Authorization: Bearer $TOKEN"
   fi
 }
@@ -127,12 +111,11 @@ api_call() {
 # check_response "body\nstatus" CONTEXT -> the body on stdout for a 2xx
 # status; dies with the body as detail otherwise.
 check_response() {
-  local body status
-  body="$(printf '%s\n' "$1" | sed '$d')"
-  status="$(printf '%s\n' "$1" | tail -n 1)"
-  case "$status" in
-  2??) printf '%s\n' "$body" ;;
-  *) die "$2 -> HTTP $status: $body" ;;
+  _check_response_body="$(printf '%s\n' "$1" | sed '$d')"
+  _check_response_status="$(printf '%s\n' "$1" | tail -n 1)"
+  case "$_check_response_status" in
+  2??) printf '%s\n' "$_check_response_body" ;;
+  *) die "$2 -> HTTP $_check_response_status: $_check_response_body" ;;
   esac
 }
 
@@ -147,41 +130,39 @@ media_list() {
 # decoder is used because base64(1)'s decode flag differs between BSD and GNU
 # (-D vs -d), while `openssl base64 -d -A` is the same on both.
 jwt_claims() {
-  local payload rem
-  payload="$(printf '%s' "$1" | cut -d. -f2 | tr '_-' '/+')"
-  rem=$((${#payload} % 4))
-  case "$rem" in
-  2) payload="${payload}==" ;;
-  3) payload="${payload}=" ;;
+  _jwt_claims_payload="$(printf '%s' "$1" | cut -d. -f2 | tr '_-' '/+')"
+  _jwt_claims_rem=$((${#_jwt_claims_payload} % 4))
+  case "$_jwt_claims_rem" in
+  2) _jwt_claims_payload="${_jwt_claims_payload}==" ;;
+  3) _jwt_claims_payload="${_jwt_claims_payload}=" ;;
   1) die "malformed access token" ;;
   esac
-  printf '%s' "$payload" | openssl base64 -d -A 2>/dev/null
+  printf '%s' "$_jwt_claims_payload" | openssl base64 -d -A 2>/dev/null
 }
 
 # require_app_permissions PERM...: die unless every PERM is in the current
 # token's `permissions` claim.
 require_app_permissions() {
-  local claims perm
-  claims="$(jwt_claims "$TOKEN")"
-  [ -n "$claims" ] || die "could not decode the access token"
-  for perm in "$@"; do
-    printf '%s' "$claims" | jq -e --arg p "$perm" \
+  _require_app_permissions_perm=""
+  _require_app_permissions_claims="$(jwt_claims "$TOKEN")"
+  [ -n "$_require_app_permissions_claims" ] || die "could not decode the access token"
+  for _require_app_permissions_perm in "$@"; do
+    printf '%s' "$_require_app_permissions_claims" | jq -e --arg p "$_require_app_permissions_perm" \
       '(.permissions // []) | index($p) != null' >/dev/null ||
-      die "the '$USERNAME' account lacks the '$perm' permission this command needs"
+      die "the '$USERNAME' account lacks the '$_require_app_permissions_perm' permission this command needs"
   done
 }
 
 # read_password PROMPT -> the entered value, terminal echo suppressed.
 read_password() {
-  local pass
   printf '%s' "$1" >&2
   stty -echo 2>/dev/null
   trap 'stty echo 2>/dev/null' EXIT INT TERM
-  read -r pass
+  read -r _read_password_pass
   stty echo 2>/dev/null
   trap - EXIT INT TERM
   echo >&2
-  printf '%s' "$pass"
+  printf '%s' "$_read_password_pass"
 }
 
 get_credentials() {
@@ -196,9 +177,8 @@ get_credentials() {
 }
 
 login() {
-  local body
-  body="$(jq -n --arg u "$USERNAME" --arg p "$PASSWORD" '{username:$u,password:$p}')"
-  TOKEN="$(check_response "$(api_login "$body")" "login" | jq -r '.access_token')"
+  _login_body="$(jq -n --arg u "$USERNAME" --arg p "$PASSWORD" '{username:$u,password:$p}')"
+  TOKEN="$(check_response "$(api_login "$_login_body")" "login" | jq -r '.access_token')"
   [ -n "$TOKEN" ] && [ "$TOKEN" != null ] ||
     die "login succeeded but the response had no access_token"
 }
@@ -207,54 +187,50 @@ login() {
 
 # -> every referenced checksum, space-joined (in_list's expected form).
 build_db_checksum_set() {
-  local checksums
-  checksums="$(media_list checksum | jq -r '.[].checksum')"
+  _build_db_checksum_set_checksums="$(media_list checksum | jq -r '.[].checksum')"
   # shellcheck disable=SC2086,SC2116 # unquoted echo collapses newlines to spaces
-  echo $checksums
+  echo $_build_db_checksum_set_checksums
 }
 
 # list_orphans DB_SET -> "key<TAB>size" lines for S3 objects not in DB_SET.
 list_orphans() {
-  local db_set kv
-  db_set="$1"
-  kv="$(aws --region "$REGION" s3api list-objects-v2 --bucket "$BUCKET" \
+  _list_orphans_db_set="$1"
+  _list_orphans_kv="$(aws --region "$REGION" s3api list-objects-v2 --bucket "$BUCKET" \
     --query 'Contents[].[Key,Size]' --output text)"
-  [ "$kv" != "None" ] || return 0
-  printf '%s\n' "$kv" | while IFS="$TAB" read -r key size; do
+  [ "$_list_orphans_kv" != "None" ] || return 0
+  printf '%s\n' "$_list_orphans_kv" | while IFS="$TAB" read -r key size; do
     [ -n "$key" ] || continue
-    in_list "$key" "$db_set" || printf '%s\t%s\n' "$key" "$size"
+    in_list "$key" "$_list_orphans_db_set" || printf '%s\t%s\n' "$key" "$size"
   done
 }
 
 cmd_orphans() {
-  local orphans count total
-  orphans="$(list_orphans "$(build_db_checksum_set)")"
-  if [ -z "$orphans" ]; then
+  _cmd_orphans_orphans="$(list_orphans "$(build_db_checksum_set)")"
+  if [ -z "$_cmd_orphans_orphans" ]; then
     log "no orphaned objects."
     return 0
   fi
-  printf '%s\n' "$orphans" | while IFS="$TAB" read -r key size; do
+  printf '%s\n' "$_cmd_orphans_orphans" | while IFS="$TAB" read -r key size; do
     [ -n "$key" ] || continue
     log "ORPHAN $key  ($size bytes)"
   done
-  count="$(printf '%s\n' "$orphans" | grep -c .)"
-  total="$(printf '%s\n' "$orphans" | awk -F"$TAB" '{s+=$2} END{print s+0}')"
-  log "$count orphaned object(s), $total bytes total. Re-run with 'gc' to delete them."
+  _cmd_orphans_count="$(printf '%s\n' "$_cmd_orphans_orphans" | grep -c .)"
+  _cmd_orphans_total="$(printf '%s\n' "$_cmd_orphans_orphans" | awk -F"$TAB" '{s+=$2} END{print s+0}')"
+  log "$_cmd_orphans_count orphaned object(s), $_cmd_orphans_total bytes total. Re-run with 'gc' to delete them."
 }
 
 cmd_gc() {
-  local orphans
-  orphans="$(list_orphans "$(build_db_checksum_set)")"
-  if [ -z "$orphans" ]; then
+  _cmd_gc_orphans="$(list_orphans "$(build_db_checksum_set)")"
+  if [ -z "$_cmd_gc_orphans" ]; then
     log "no orphaned objects; nothing to delete."
     return 0
   fi
-  printf '%s\n' "$orphans" | while IFS="$TAB" read -r key size; do
+  printf '%s\n' "$_cmd_gc_orphans" | while IFS="$TAB" read -r key size; do
     [ -n "$key" ] || continue
     log "DELETE $key  ($size bytes)"
   done
   confirm "Delete the objects marked DELETE above from s3://$BUCKET? (versioning + expire-noncurrent give a 90-day undo window)"
-  printf '%s\n' "$orphans" | while IFS="$TAB" read -r key size; do
+  printf '%s\n' "$_cmd_gc_orphans" | while IFS="$TAB" read -r key size; do
     [ -n "$key" ] || continue
     log "deleting $key..."
     aws --region "$REGION" s3api delete-object --bucket "$BUCKET" --key "$key" >/dev/null
@@ -278,13 +254,13 @@ canonical_path() {
 # output, reshaped). Logs each planned rename and prints "handle<TAB>new_path"
 # lines for rows not already in canonical form.
 plan_renames() {
-  local handle checksum path new_path
-  printf '%s\n' "$1" | while IFS="$TAB" read -r handle checksum path; do
-    [ -n "$handle" ] || continue
-    new_path="$(canonical_path "$checksum" "$path")"
-    [ "$path" != "$new_path" ] || continue
-    log "RENAME $path -> $new_path  (handle $handle)"
-    printf '%s\t%s\n' "$handle" "$new_path"
+  _plan_renames_handle="" _plan_renames_checksum="" _plan_renames_path="" _plan_renames_new_path=""
+  printf '%s\n' "$1" | while IFS="$TAB" read -r _plan_renames_handle _plan_renames_checksum _plan_renames_path; do
+    [ -n "$_plan_renames_handle" ] || continue
+    _plan_renames_new_path="$(canonical_path "$_plan_renames_checksum" "$_plan_renames_path")"
+    [ "$_plan_renames_path" != "$_plan_renames_new_path" ] || continue
+    log "RENAME $_plan_renames_path -> $_plan_renames_new_path  (handle $_plan_renames_handle)"
+    printf '%s\t%s\n' "$_plan_renames_handle" "$_plan_renames_new_path"
   done
 }
 
@@ -292,28 +268,26 @@ plan_renames() {
 # replaces the whole object (resources/base.py). Only `path` changes; every
 # other field round-trips as the API returned it.
 rewrite_path() {
-  local obj new_obj
-  obj="$(check_response "$(api_call GET "/media/$1")" "GET /media/$1")"
-  new_obj="$(printf '%s' "$obj" | jq --arg p "$2" '.path = $p')"
-  check_response "$(api_call PUT "/media/$1" "$new_obj")" "PUT /media/$1" >/dev/null
+  _rewrite_path_obj="$(check_response "$(api_call GET "/media/$1")" "GET /media/$1")"
+  _rewrite_path_new_obj="$(printf '%s' "$_rewrite_path_obj" | jq --arg p "$2" '.path = $p')"
+  check_response "$(api_call PUT "/media/$1" "$_rewrite_path_new_obj")" "PUT /media/$1" >/dev/null
 }
 
 cmd_flatten() {
-  local apply rows renames count
-  apply="$1"
-  rows="$(media_list "handle,checksum,path" | jq -r '.[] | [.handle,.checksum,.path] | @tsv')"
-  renames="$(plan_renames "$rows")"
-  if [ -z "$renames" ]; then
+  _cmd_flatten_apply="$1"
+  _cmd_flatten_rows="$(media_list "handle,checksum,path" | jq -r '.[] | [.handle,.checksum,.path] | @tsv')"
+  _cmd_flatten_renames="$(plan_renames "$_cmd_flatten_rows")"
+  if [ -z "$_cmd_flatten_renames" ]; then
     log "no legacy paths; nothing to flatten."
     return 0
   fi
-  count="$(printf '%s\n' "$renames" | grep -c .)"
-  if [ "$apply" != 1 ]; then
-    log "$count path(s) would be rewritten. Re-run with 'flatten --apply' to apply."
+  _cmd_flatten_count="$(printf '%s\n' "$_cmd_flatten_renames" | grep -c .)"
+  if [ "$_cmd_flatten_apply" != 1 ]; then
+    log "$_cmd_flatten_count path(s) would be rewritten. Re-run with 'flatten --apply' to apply."
     return 0
   fi
-  confirm "Rewrite the $count path(s) listed above?"
-  printf '%s\n' "$renames" | while IFS="$TAB" read -r handle new_path; do
+  confirm "Rewrite the $_cmd_flatten_count path(s) listed above?"
+  printf '%s\n' "$_cmd_flatten_renames" | while IFS="$TAB" read -r handle new_path; do
     [ -n "$handle" ] || continue
     log "rewriting $handle -> $new_path..."
     rewrite_path "$handle" "$new_path"
@@ -322,17 +296,18 @@ cmd_flatten() {
 }
 
 main() {
-  local cmd apply_flag
-  cmd="${1:-}"
-  apply_flag=0
-  case "$cmd" in
+  select_root "$@"
+  shift "$ROOT_SHIFT"
+  _main_cmd="${1:-}"
+  _main_apply_flag=0
+  case "$_main_cmd" in
   orphans | gc)
     [ "$#" -eq 1 ] || usage
     ;;
   flatten)
     case "${2:-}" in
     '') ;;
-    --apply) apply_flag=1 ;;
+    --apply) _main_apply_flag=1 ;;
     *) usage ;;
     esac
     [ "$#" -le 2 ] || usage
@@ -340,16 +315,12 @@ main() {
   *) usage ;;
   esac
 
-  require aws jq curl openssl
-  env_paths
-  REGION="$(resolve_region "$TFVARS")"
+  require aws terraform jq curl openssl
+  init_root
   readonly REGION
-  BUCKET="$(media_bucket_name)"
+  BUCKET="$(tf_output media_bucket_name)"
   readonly BUCKET
-  DOMAIN="$(sed -n \
-    's/^[[:space:]]*primary_domain[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
-    "$TFVARS" | head -n 1)"
-  [ -n "$DOMAIN" ] || die "no primary_domain set in $TFVARS"
+  DOMAIN="$(tf_output primary_domain)"
   readonly DOMAIN
   API="https://$DOMAIN/api"
   readonly API
@@ -357,7 +328,7 @@ main() {
   get_credentials
   login
 
-  case "$cmd" in
+  case "$_main_cmd" in
   orphans)
     require_app_permissions "$PERM_VIEW_PRIVATE"
     cmd_orphans
@@ -368,7 +339,7 @@ main() {
     ;;
   flatten)
     require_app_permissions "$PERM_VIEW_PRIVATE" "$PERM_EDIT_OBJ"
-    cmd_flatten "$apply_flag"
+    cmd_flatten "$_main_apply_flag"
     ;;
   esac
 }

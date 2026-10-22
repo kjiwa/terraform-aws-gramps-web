@@ -28,20 +28,20 @@ log() {
 }
 
 main() {
-  local start end elapsed used_kb rate
+  _main_rate=""
   log "Pre-warming root filesystem (parallel=$PARALLEL_READERS)..."
-  start=$(date +%s)
+  _main_start=$(date +%s)
   find / -xdev -type f -print0 2>/dev/null |
     xargs -0 -P "$PARALLEL_READERS" -n 20 cat >/dev/null 2>/dev/null || true
-  end=$(date +%s)
-  elapsed=$((end - start))
-  used_kb="$(df -x tmpfs -x devtmpfs --output=used / 2>/dev/null | tail -n 1 | tr -d ' ')" || used_kb=0
-  if [ "${elapsed:-0}" -gt 0 ] && [ "${used_kb:-0}" -gt 0 ]; then
-    rate=$(((used_kb / 1024) / elapsed))
+  _main_end=$(date +%s)
+  _main_elapsed=$((_main_end - _main_start))
+  _main_used_kb="$(df -x tmpfs -x devtmpfs --output=used / 2>/dev/null | tail -n 1 | tr -d ' ')" || _main_used_kb=0
+  if [ "${_main_elapsed:-0}" -gt 0 ] && [ "${_main_used_kb:-0}" -gt 0 ]; then
+    _main_rate=$(((_main_used_kb / 1024) / _main_elapsed))
   else
-    rate=0
+    _main_rate=0
   fi
-  log "Pre-warm complete: ${elapsed}s, ${rate}MB/s (used ${used_kb}KB)."
+  log "Pre-warm complete: ${_main_elapsed}s, ${_main_rate}MB/s (used ${_main_used_kb}KB)."
   exit 0
 }
 

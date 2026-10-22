@@ -34,16 +34,15 @@ install_packages() {
 }
 
 install_codedeploy_agent() {
-  local tmp_installer
   log "Installing CodeDeploy agent..."
   dnf install -y ruby
 
-  tmp_installer="$(mktemp)"
-  curl -fsSL -o "$tmp_installer" \
+  _install_codedeploy_agent_tmp_installer="$(mktemp)"
+  curl -fsSL -o "$_install_codedeploy_agent_tmp_installer" \
     "https://aws-codedeploy-${REGION}.s3.${REGION}.amazonaws.com/latest/install"
-  chmod +x "$tmp_installer"
-  "$tmp_installer" auto
-  rm -f "$tmp_installer"
+  chmod +x "$_install_codedeploy_agent_tmp_installer"
+  "$_install_codedeploy_agent_tmp_installer" auto
+  rm -f "$_install_codedeploy_agent_tmp_installer"
 
   systemctl enable codedeploy-agent
   log "CodeDeploy agent installed."
@@ -109,19 +108,19 @@ EOF
 # "gramps-health-watchdog"), $3+ = unit suffixes to install ("service",
 # "timer"). Enables the last suffix passed, i.e. the timer when there is one.
 install_unit() {
-  local src name suffix last
-  src="$1"
-  name="$2"
+  _install_unit_suffix="" _install_unit_last=""
+  _install_unit_src="$1"
+  _install_unit_name="$2"
   shift 2
-  log "Installing $name..."
-  install -m 0755 "/tmp/$src.sh" "/usr/local/bin/$name"
-  rm -f "/tmp/$src.sh"
-  for suffix in "$@"; do
-    install -m 0644 "/tmp/$src.$suffix" "/etc/systemd/system/$name.$suffix"
-    rm -f "/tmp/$src.$suffix"
-    last="$suffix"
+  log "Installing $_install_unit_name..."
+  install -m 0755 "/tmp/$_install_unit_src.sh" "/usr/local/bin/$_install_unit_name"
+  rm -f "/tmp/$_install_unit_src.sh"
+  for _install_unit_suffix in "$@"; do
+    install -m 0644 "/tmp/$_install_unit_src.$_install_unit_suffix" "/etc/systemd/system/$_install_unit_name.$_install_unit_suffix"
+    rm -f "/tmp/$_install_unit_src.$_install_unit_suffix"
+    _install_unit_last="$_install_unit_suffix"
   done
-  systemctl enable "$name.$last"
+  systemctl enable "$_install_unit_name.$_install_unit_last"
 }
 
 # Sourced (not executed) by spot-drain.sh, health-watchdog.sh and
@@ -137,14 +136,13 @@ install_runtime_lib() {
 # loudly on a miss -- a silent one would quietly put Docker Hub back on the
 # boot-critical path.
 valkey_image_pin() {
-  local image
-  image="$(awk '$1 == "valkey:" { in_svc = 1 }
+  _valkey_image_pin_image="$(awk '$1 == "valkey:" { in_svc = 1 }
     in_svc && $1 == "image:" { print $2; exit }' /tmp/docker-compose.yml)"
-  if [ -z "$image" ]; then
+  if [ -z "$_valkey_image_pin_image" ]; then
     log "ERROR: could not extract the valkey image from docker-compose.yml"
     exit 1
   fi
-  echo "$image"
+  echo "$_valkey_image_pin_image"
 }
 
 # Pre-pulling valkey and grampsweb keeps both off the boot-critical path of a
@@ -155,11 +153,10 @@ valkey_image_pin() {
 # the deploy pulls it the ordinary way (CodeDeploy's AfterInstall) once the
 # app pipeline has actually pushed a version.
 pull_images() {
-  local valkey_image
-  valkey_image="$(valkey_image_pin)"
+  _pull_images_valkey_image="$(valkey_image_pin)"
   rm -f /tmp/docker-compose.yml
-  log "Pulling valkey image: ${valkey_image}..."
-  docker pull "$valkey_image"
+  log "Pulling valkey image: ${_pull_images_valkey_image}..."
+  docker pull "$_pull_images_valkey_image"
 
   if [ -n "${ECR_REPO_URL:-}" ] && [ -n "${GRAMPS_WEB_VERSION:-}" ]; then
     log "Pulling grampsweb image: ${ECR_REPO_URL}:${GRAMPS_WEB_VERSION}..."

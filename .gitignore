@@ -6,10 +6,10 @@
 *.tfstate
 *.tfstate.backup
 # State backups written by scripts/azmove.sh adopt.
-scripts/azmove-state-*.json
+azmove-state-*.json
 # Restore drill manifests written by scripts/restore.sh drill -- carry the same
 # account-scoped detail as state.
-scripts/restore-drill-*.json
+restore-drill-*.json
 # archive_file artifact rebuilt by every plan/apply; never commit it.
 modules/monitoring/lambda/availability.zip
 # Same, for the status Lambda -- built from lambda/ (2 files) into dist/ so
