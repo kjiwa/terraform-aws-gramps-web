@@ -31,3 +31,8 @@ AVD-AWS-0011
 # the CloudFront origin-facing prefix list (modules/network/main.tf).
 AVD-AWS-0104
 AVD-AWS-0164
+
+# Dockerfile has no USER: the derived image inherits the upstream Gramps Web
+# image's user (root) and its plugin path under /root/.gramps. Switching user
+# is upstream's change to make; this layer is a bare COPY.
+DS-0002
