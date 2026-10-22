@@ -2,8 +2,8 @@
 # Builds the gramps-web-base AMIs (both architectures) with a pinned Packer
 # from this directory's gramps-ami.pkr.hcl, then prints the newest AMI per
 # architecture as a ready-to-paste ami_ids block. Runs inside the gramps-web-ami
-# CodeBuild project (build/ami/buildspec.yml) and from a workstation. New AMIs
-# deploy nothing until pinned in ami_ids and applied.
+# CodeBuild project (build/ami/buildspec.yml) and from a workstation. With
+# ami_ids null, the next apply rolls the newest AMIs out; pin ami_ids to hold.
 #
 # Env:
 #   REGION              region to build in. CodeBuild injects it; workstation
@@ -67,14 +67,14 @@ install_packer() {
 }
 
 # The newest gramps-web-base AMI per architecture, printed as the ami_ids block
-# the operator pins next.
+# the operator can pin to hold them.
 print_pin_candidates() {
   _print_pin_candidates_block="$(aws ec2 describe-images --region "$REGION" --owners self \
     --filters "Name=tag:Name,Values=gramps-web-base" "Name=state,Values=available" \
     --query 'Images[].{arch:Architecture,id:ImageId,date:CreationDate}' \
     --output json |
     jq -r 'group_by(.arch)[] | max_by(.date) | "  \(.arch) = \"\(.id)\""')"
-  log "newest gramps-web-base AMIs. To roll out: pin them as the module's ami_ids, apply."
+  log "newest gramps-web-base AMIs. With ami_ids null the next apply uses them; to hold them, pin ami_ids."
   printf 'ami_ids = {\n%s\n}\n' "$_print_pin_candidates_block" >&2
 }
 

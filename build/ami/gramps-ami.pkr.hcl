@@ -40,12 +40,10 @@ variable "gramps_web_version" {
 locals {
   # Name is the stable tag every base AMI carries; both arches share it (the
   # architecture attribute disambiguates) and scripts/clean-amis.sh selects on
-  # it. The deployed AMI is pinned per arch (ami_ids), not
-  # discovered. git_sha records the commit the build ran from (empty:
-  # untracked manual build). source_ami/source_ami_name are provenance for the
-  # status page's image panel (modules/status): which upstream
-  # AL2023 AMI this build started from. Packer template engine syntax
-  # (resolved by Packer itself, not Terraform), left literal.
+  # it. git_sha records the commit the build ran from (empty: untracked manual
+  # build). source_ami/source_ami_name feed the status page's image panel
+  # (modules/status). The {{ }} values are Packer template syntax, resolved by
+  # Packer, not Terraform.
   gramps_ami_tags = {
     Name            = "gramps-web-base"
     built_by        = "packer"
@@ -54,12 +52,10 @@ locals {
     source_ami_name = "{{ .SourceAMIName }}"
   }
 
-  # 24 GiB: measured on a live instance from GrampsWeb/DiskUsedBytes -- 5.05 GB
-  # before the pull, 9.26 GB after (the extracted grampsweb image is 4.21 GB, not
-  # the 1.87 GB compressed ECR size). A fresh baked instance starts at 9.26 GB,
-  # and a version bump pulls a second copy alongside the running one to 13.47 GB;
-  # 24 GiB puts that at 52% of usable, leaving headroom for the journal and
-  # compose logs on the same filesystem. Shared by both arches.
+  # 24 GiB: a baked instance uses about 9.3 GB (the extracted grampsweb image is
+  # 4.2 GB, not its 1.9 GB compressed size) and a version bump pulls a second
+  # copy alongside the running one, to about 13.5 GB, leaving headroom for the
+  # journal and compose logs.
   gramps_ami_root_volume = {
     device_name           = "/dev/xvda"
     volume_size           = 24
@@ -67,9 +63,8 @@ locals {
     delete_on_termination = true
   }
 
-  # Both arches sit at 2 vCPU, and the 2 GiB arm64 box builds no slower than the
-  # 4 GiB x86 one (3m27s vs 3m42s in install.sh), so the sizes are set by what the
-  # build needs, not by matching the runtime fleet.
+  # Both arches have 2 vCPU and build in about the same time, so the sizes follow
+  # what the build needs, not the runtime fleet.
   builder_instance_types = {
     arm64  = "t4g.small"
     x86_64 = "t3.medium"
@@ -77,23 +72,18 @@ locals {
 
   # Packer terminates the builder itself via the API once the snapshot is
   # taken; this only fires if that never happens (e.g. the CodeBuild container is
-  # killed mid-build, orphaning the instance). Builds run ~20min measured, so 90
+  # killed mid-build, orphaning the instance). Builds take about ten minutes, so 90
   # gives headroom without leaving a dead builder running for long.
   builder_watchdog_user_data = "#!/bin/sh\nshutdown -h +90\n"
 }
 
 # Base AMI: OS, Docker, compose, SSM + CodeDeploy agents, the Spot interruption
-# drain unit, and valkey and grampsweb both pre-pulled. Baking grampsweb makes
-# same-version launches (every replacement except a deliberate version bump)
-# skip the ~99s ECR pull entirely; a version bump still pulls the new tag via
-# CodeDeploy's AfterInstall. Baking the image nearly quadrupled this snapshot's
-# hydrate-on-first-touch size (2.4GB -> 8.4GB measured), which cost more in EBS
-# lazy-load latency than the pull it removed -- gramps-prewarm
-# (prewarm.sh/.service) exists to pay that cost concurrently with boot instead
-# of serially against the app's own cold-import reads. Rebuild this AMI for
-# OS/agent patching or to bake the current grampsweb version; a version-only
-# bump doesn't require it (the deploy pulls, just slower until the next
-# base-AMI rebuild).
+# drain unit, and valkey and grampsweb both pre-pulled. Baking grampsweb lets
+# same-version launches skip the ECR pull; a version bump still pulls the new
+# tag via CodeDeploy's AfterInstall. A larger snapshot costs EBS lazy-load
+# latency on first read, which gramps-prewarm (prewarm.sh/.service) pays
+# concurrently with boot. Rebuild for OS/agent patching or to bake the current
+# grampsweb version; a version-only bump does not require it.
 source "amazon-ebs" "gramps" {
   region = var.region
 

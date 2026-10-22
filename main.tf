@@ -195,7 +195,7 @@ module "app_pipeline" {
 
 # Base-AMI patch rebuilds under a scoped role. Manual-trigger:
 #   aws codebuild start-build --project-name gramps-web-ami
-# then apply to roll out the newest AMIs (or pin the printed IDs in ami_ids).
+# then apply to roll out the newest AMIs (or pin ami_ids to hold).
 module "ami_build" {
   source = "./modules/ami-build"
 
