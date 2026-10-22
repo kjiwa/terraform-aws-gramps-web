@@ -112,3 +112,15 @@ run "active_true_runs_one_instance" {
     error_message = "active = true must run one instance."
   }
 }
+
+run "eip_carries_the_project_tag_without_default_tags" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+
+  assert {
+    condition     = aws_eip.origin.tags["Project"] == "gramps-web"
+    error_message = "The instance IAM policy conditions on aws:ResourceTag/Project, so the EIP must be tagged explicitly."
+  }
+}

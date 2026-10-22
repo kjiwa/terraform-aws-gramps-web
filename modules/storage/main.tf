@@ -134,6 +134,7 @@ resource "aws_ebs_volume" "this" {
   tags = {
     Name       = "gramps-data"
     Persistent = "true"
+    Project    = "gramps-web"
   }
 
   lifecycle {
