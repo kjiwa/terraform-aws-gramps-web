@@ -79,7 +79,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "cache" {
   }
 }
 
-# TLS-only, matching the estate standard.
+# TLS-only.
 data "aws_iam_policy_document" "cache" {
   statement {
     sid       = "DenyInsecureTransport"

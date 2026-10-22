@@ -17,7 +17,7 @@
      --gw-good/warn/bad above, which mean SLO bands specifically and would
      misread as "this line is healthy/unhealthy" if reused for a plain
      trend or magnitude. --gw-chart-1/2 is a validated color-blind-safe
-     adjacent pair (see the dataviz skill's palette.md), used in fixed
+     adjacent pair, used in fixed
      order across every two-series chart on this page (p50/p90, CPU/mem)
      so a color always names the same series everywhere it appears.
      --gw-chart-3 is the palette's third slot, added for the events lane's
@@ -791,9 +791,9 @@ details > .table-scroll {
   border-radius: 0 0.3rem 0.3rem 0;
 }
 /* Meter: a level (budget spent, disk used), not a trend -- a filled bar
-   against a lighter tint of the same hue rather than a chart, per the
-   dataviz skill's meter spec (fill = accent, track = a lighter step of
-   the same ramp so state reads across the whole bar). */
+   against a lighter tint of the same hue rather than a chart (fill =
+   accent, track = a lighter step of the same ramp so state reads across
+   the whole bar). */
 .meter {
   position: relative;
   height: 0.6rem;

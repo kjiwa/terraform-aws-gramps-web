@@ -1,21 +1,16 @@
 # Status Lambda behind a Function URL that CloudFront reaches via OAC (see
-# edge/status.tf for that half). See the `status` variable in
-# variables.tf for what the page shows, who can see it, and what
-# public_reliability does; see lambda/status.py's docstring for the code
-# structure. Gramps Web's own users/roles are the sole identity source for
-# the gated routes -- lambda/status.py forwards the caller's token to GET
-# /api/users/-/ on the site itself, so there is no second user directory.
+# edge/status.tf for that half). The `status` variable in variables.tf says what
+# the page shows, who can see it, and what public_reliability does;
+# lambda/status.py's docstring covers the code structure. Gramps Web's own
+# users and roles are the sole identity source for the gated routes:
+# lambda/status.py forwards the caller's token to GET /api/users/-/ on the site.
 
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
 locals {
-  # Hardcoded rather than threaded through as a variable: these are the same
-  # literals the monitoring module uses for its episode log group and the one
-  # stream it writes every episode to (lambda.tf there), and monitoring
-  # exports outputs for neither. Two modules agreeing on constant strings is
-  # simpler than a cross-module wire for names that only ever change alongside
-  # this file anyway.
+  # The same literals the monitoring module uses for its episode log group and
+  # streams (lambda.tf there), which exports no outputs for them.
   episodes_log_group  = "/gramps-web/availability-episodes"
   episodes_log_stream = "episodes"
   changes_log_stream  = "changes"
@@ -48,14 +43,11 @@ resource "aws_lambda_function" "status" {
   memory_size = 512
   timeout     = 20
 
-  # Capped well below the account's concurrency pool: this Lambda shares that
-  # pool with the availability canary (modules/monitoring), which runs
-  # rate(1 minute) and is the sole producer of the SiteUp metric this page
-  # (and /_status/public) reports, so a flood against this function could
-  # throttle the canary and corrupt the uptime metric. 10 covers legitimate
-  # traffic bursts while leaving unreserved concurrency comfortably above
-  # AWS's 100-minimum floor. Request-path caches in lambda/status.py and
-  # CloudFront caching in edge/cloudfront_primary.tf provide the primary abuse bound.
+  # Capped well below the account's concurrency pool: it shares that pool with
+  # the availability canary (modules/monitoring), the sole producer of the SiteUp
+  # metric, so a flood here could throttle the canary and corrupt uptime. Request
+  # caches in lambda/status.py and CloudFront caching in
+  # edge/cloudfront_primary.tf are the primary abuse bound.
   reserved_concurrent_executions = 10
 
   # CloudFront can invoke within seconds of creation; without this the runtime
