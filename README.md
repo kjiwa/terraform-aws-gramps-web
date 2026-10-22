@@ -1,8 +1,110 @@
 # Gramps Web on AWS
 
-A Terraform module that runs [Gramps Web](https://www.grampsweb.org/) on AWS: one instance (optionally Spot) behind CloudFront, with an optional AI chat assistant on Amazon Bedrock and an optional operational status page. The app image is built from the upstream release plus a configurable set of Gramps addons, pushed to ECR, and rolled out with CodeDeploy.
+A Terraform module that runs [Gramps Web](https://www.grampsweb.org/), the web app for the Gramps genealogy program, on AWS for a few tens of dollars a month. It is an independent project, unofficial and not affiliated with or endorsed by the Gramps project.
+
+The module serves one shape: a single instance with the database on SQLite on an EBS volume and media in S3. The instance is Spot or On-Demand, behind CloudFront, and backs up locally, to a second region, or to a second AWS account. Optional parts are an AI chat assistant on Amazon Bedrock and an operational [status page](docs/status-page.md). Gramps Web supports a single API replica, so there is no multi-instance mode.
 
 Required inputs are `primary_domain` and `alert_email`. Everything else has a default; the [module reference](#module-reference) lists them with their costs.
+
+![Public status page](docs/images/status-light.png)
+
+## Architecture
+
+```mermaid
+flowchart LR
+  user([Browser]) --> cf[CloudFront]
+  r53[Route 53] -.-> cf
+  acm[ACM certificate] -.-> cf
+  cf -->|app and API| asg
+  cf -->|error pages, status shell| s3web[(S3 static site)]
+  cf -->|/_status| statuslambda[Status Lambda]
+  subgraph asg[Auto Scaling group, one instance]
+    ec2[EC2 Spot or On-Demand]
+    ebs[(EBS data volume)]
+    ec2 --- ebs
+  end
+  ec2 --> media[(S3 media)]
+  ec2 -.->|optional chat| bedrock[Bedrock]
+  gh[GitHub release branch] --> pipe[CodePipeline and CodeBuild]
+  pipe --> ecr[ECR image]
+  ecr --> deploy[CodeDeploy]
+  deploy --> ec2
+  backup[AWS Backup] -.-> ebs
+  backup -.-> media
+  backup --> vault[(Vault: local, second region, or second account)]
+  avail[Availability Lambda] -.-> cf
+  avail --> logs[(CloudWatch logs)]
+  statuslambda --> logs
+```
+
+The availability Lambda probes the site every minute and records outages and their causes. The status Lambda reads that history, so the status page can show uptime and Spot reclaims.
+
+## Cost
+
+Real figures from one small production deployment, offered as an example and not a promise: a single Spot instance of about 4 GiB, chat enabled, the status page on, and AWS Backup, in us-east-1. Unblended cost by service from AWS Cost Explorer, in USD, including tax.
+
+| Service | Sep 2026 (full month) | 1-20 Oct 2026 |
+|---|---:|---:|
+| EC2 compute (Spot) | 11.94 | 7.37 |
+| Key Management Service | 4.96 | 3.18 |
+| EC2 other (EBS and related) | 3.97 | 2.62 |
+| VPC (public IPv4 address) | 3.61 | 2.40 |
+| Tax | 2.83 | 1.82 |
+| Container Registry (ECR) | 1.34 | 1.24 |
+| CloudWatch | 1.30 | 0.00 |
+| Route 53 | 1.04 | 1.03 |
+| S3, Cost Explorer, CodeBuild, Backup | 0.51 | 0.26 |
+| **Total** | **31.50** | **19.92** |
+
+Everything else rounds to zero. No Bedrock line item appeared in either period; chat is billed per token. The total is about one dollar a day. October stops at the 20th because the Spot allocation strategy changed on 21 October; no whole day has elapsed since, so these figures describe the earlier configuration. Spot prices, instance size, volume size, and chat usage move the total. Each cost-bearing input states its price in the [module reference](#module-reference). A sleeping site costs a few dollars a month.
+
+## Backups
+
+AWS Backup snapshots the data volume and the media bucket daily (`backup.schedule`). `backup.mode` picks where the recovery points go.
+
+| Mode | Copy | Protects against |
+|---|---|---|
+| `local` | None. Recovery points stay in a vault in the same account and region. | Corruption, a bad upgrade, or accidental deletion of data. |
+| `cross_region` | A second vault and key in `backup.region`. | Loss of the primary region. |
+| `cross_account` | A vault owned by a separate AWS account (`backup.account_id`). | Loss or compromise of the workload account, including deletion of its backups. The destination vault can be locked so that nobody can delete recovery points. |
+| `disabled` | No backups. | Nothing. |
+
+Procedures: [cross-account backup](docs/cross-account-backup.md), [restore](docs/restore.md).
+
+## Upgrading Gramps Web
+
+Set `gramps.version` to the upstream image tag, apply, then deploy:
+
+```hcl
+gramps = {
+  version = "26.10.2"
+}
+```
+
+```sh
+terraform apply
+scripts/deploy.sh --root <root> gramps
+```
+
+The deploy builds the image from the upstream release plus your addons, pushes it to ECR, and rolls it out with CodeDeploy. Expect a brief interruption while the container swaps.
+
+## Sleeping the site
+
+`active = false` stops the instance and the canary alarms and keeps all data, which costs a few dollars a month. Setting it back to `true` and applying wakes the site in about five minutes.
+
+## Release branches
+
+CodePipeline and CodeBuild pull `build/` and `scripts/` from `repo_url` on `source_branch`, and CodePipeline can source a branch but not a tag. Pin the module to a tag and set `source_branch` to the matching `release-<major>.<minor>` branch, which moves with patch releases:
+
+```hcl
+module "gramps_web" {
+  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v0.9.2"
+  source_branch = "release-0.9"
+  # ...
+}
+```
+
+The builds run that branch's code with deploy permissions, so point `repo_url` at a repository you trust.
 
 ## Requirements
 
@@ -16,7 +118,7 @@ Required inputs are `primary_domain` and `alert_email`. Everything else has a de
 
 [examples/minimal](examples/minimal) composes the module with keel's DNS, cost budget, and audit modules.
 
-1. Build the base AMIs from a checkout of this repository. The module picks up the newest AMI tagged `Name=gramps-web-base`, so `ami_ids` stays unset.
+1. Build the base AMIs first, from a checkout of this repository. The module looks up the newest AMI tagged `Name=gramps-web-base`, so a plan fails until one exists; `ami_ids` stays unset. The build takes about ten minutes.
 
    ```sh
    REGION=us-east-1 build/ami/build.sh
