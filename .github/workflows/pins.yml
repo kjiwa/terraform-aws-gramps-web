@@ -1,7 +1,7 @@
 name: pins
 
 # Monthly check for the tool versions no ecosystem bot covers -- see
-# scripts/check-pins.sh's header for which six and why. Opens or updates a
+# scripts/check-pins.sh's header for which eight and why. Opens or updates a
 # single tracking issue rather than a PR: every one of these bumps has a
 # manual consequence (an AMI rebuild, a `tflint --init`, a `tfenv install`)
 # a merge button doesn't discharge.

@@ -7,9 +7,9 @@ name: terraform
 # (a full validate against amazon-ebs needs credentials, and that already
 # happens for real inside CodeBuild -- see build/ami/build.sh), and
 # shellcheck-py bundles its own binary. A real `terraform plan` (which needs
-# state + cloud auth) is deliberately NOT run here; add it later behind GitHub
-# OIDC if you want plan-on-PR. .github/workflows/** is listed so workflow edits
-# still reach the actionlint hook.
+# state + cloud auth) is deliberately not run here. .github/workflows/** is
+# listed so workflow edits still reach the actionlint hook, and the docs paths
+# so the hygiene and README checks see doc edits.
 
 on:
   pull_request:
@@ -24,6 +24,12 @@ on:
       - 'build/web/tests/fixtures/**'
       - 'build/web/publish.sh'
       - 'scripts/**'
+      - 'README.md'
+      - 'docs/**'
+      - 'CHANGELOG.md'
+      - 'CONTRIBUTING.md'
+      - '.terraform-docs.yml'
+      - '.shellcheckrc'
       - '.pre-commit-config.yaml'
       - '.terraform-version'
       - '.github/workflows/**'
@@ -40,6 +46,12 @@ on:
       - 'build/web/tests/fixtures/**'
       - 'build/web/publish.sh'
       - 'scripts/**'
+      - 'README.md'
+      - 'docs/**'
+      - 'CHANGELOG.md'
+      - 'CONTRIBUTING.md'
+      - '.terraform-docs.yml'
+      - '.shellcheckrc'
       - '.pre-commit-config.yaml'
       - '.terraform-version'
       - '.github/workflows/**'

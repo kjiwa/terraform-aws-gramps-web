@@ -83,4 +83,4 @@ repos:
         entry: sh scripts/docs.sh --check
         language: system
         pass_filenames: false
-        files: ^([^/]+\.tf|\.terraform-docs\.yml)$
+        files: ^([^/]+\.tf|\.terraform-docs\.yml|README\.md)$
