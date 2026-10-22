@@ -250,7 +250,7 @@ variable "gramps" {
 }
 
 variable "status" {
-  description = "Operational status page at /_status (object); off unless enabled. min_role is the lowest Gramps Web role that may view it (nobody locks it). host_metrics adds disk and memory panels and a disk alarm, billed per custom metric and alarm per month. volume_metrics adds exact byte metrics, needs host_metrics and a base-AMI rebuild. cost adds a Cost Explorer panel at 0.01 USD per call on a Lambda cold start. public_reliability serves redacted uptime history at /_status/public and cannot combine with min_role nobody."
+  description = "Operational status page at /_status (object); off unless enabled. min_role is the lowest Gramps Web role that may view it (nobody locks it). host_metrics adds disk and memory panels and a disk alarm, billed per custom metric and alarm per month. volume_metrics adds exact byte metrics, needs host_metrics and a base-AMI rebuild. cost adds a Cost Explorer panel at 0.01 USD per call on a Lambda cold start. public_reliability serves redacted uptime history at /_status/public and cannot combine with min_role nobody. The status Lambda reserves 10 concurrent executions and Lambda keeps 100 unreserved, so the account's Lambda concurrency quota must be at least 110; new accounts often start at 10, so request an increase first."
   type = object({
     enabled            = optional(bool, false)
     min_role           = optional(string, "owner")
