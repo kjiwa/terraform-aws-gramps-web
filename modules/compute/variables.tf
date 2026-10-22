@@ -175,9 +175,3 @@ variable "status_volume_metrics" {
   type        = bool
   default     = false
 }
-
-variable "instance_role_arn" {
-  description = "Optional pre-existing IAM role ARN for the instance profile. When set, this module skips creating aws_iam_role.instance/aws_iam_instance_profile.instance and uses the passed role instead."
-  type        = string
-  default     = null
-}

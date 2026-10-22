@@ -10,7 +10,7 @@ output "asg_name" {
 
 output "instance_role_name" {
   description = "IAM role name attached to EC2 instances. The app-pipeline module attaches its artifact-bucket read grant to it."
-  value       = local.instance_role_name
+  value       = aws_iam_role.instance.name
 }
 
 output "codedeploy_app_name" {
