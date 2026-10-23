@@ -99,7 +99,14 @@ export function App() {
     };
   }, []);
 
-  const retry = () => void loadState().then(setState);
+  // A failed refetch keeps the panels already on screen; any other outcome
+  // (data, sign-in, forbidden) replaces them.
+  const retry = () =>
+    void loadState().then((next) =>
+      setState((prev) =>
+        next.phase === 'gate' && next.gate.kind === 'error' && prev.phase !== 'gate' ? prev : next,
+      ),
+    );
 
   // Owns skeleton removal: the moment state transitions out of "loading",
   // remove #skeleton via a plain DOM call -- #skeleton is a dedicated sibling,
@@ -142,7 +149,8 @@ export function App() {
   if (state.phase === 'loading' || state.phase === 'gate') return null;
 
   if (state.phase === 'public') {
-    // Deliberately no section heading: X    // incidents) needs no heading either way.
+    // Deliberately no section heading: a single group (reliability +
+    // incidents + changes) needs no heading either way.
     return (
       <RetryContext.Provider value={retry}>
         <PanelBoundary resetKey={state.data} title="Reliability">

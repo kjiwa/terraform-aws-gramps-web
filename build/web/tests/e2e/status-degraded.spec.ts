@@ -59,6 +59,27 @@ test('a timed-out panel offers Retry, which refetches and renders the panel', as
   await expect(card.locator('.stat-row').first()).toBeVisible();
 });
 
+test('a failed Retry keeps the panels on screen', async ({ page, startStatus }) => {
+  const baseURL = await startStatus({
+    server: {
+      toggles: ALL_TOGGLES_ON,
+      firstDataOverride: { status: 200, body: degradedPayload(['incidents'], 'timed out') },
+      dataOverride: { status: 500, body: { error: 'boom' } },
+    },
+    tokens: { access: 'e2e-access-token' },
+  });
+  await page.goto(`${baseURL}/_status`);
+
+  const card = page.locator('.card', { has: page.locator('h3', { hasText: /^Incidents$/ }) });
+  await card.getByRole('button', { name: 'Retry' }).click();
+
+  await expect(page.locator('#gate')).toBeHidden();
+  await expect(card.locator('.err')).toContainText("Didn't load in time.");
+  await expect(
+    page.locator('.card', { has: page.locator('h3', { hasText: /^Reliability$/ }) }),
+  ).toBeVisible();
+});
+
 test('a non-timeout panel error has no Retry', async ({ page, startStatus }) => {
   const baseURL = await startStatus({
     server: {

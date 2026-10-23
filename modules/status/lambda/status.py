@@ -240,8 +240,10 @@ CHART_RANGES = {
 INSIGHTS_ROW_LIMIT = 10000
 INSIGHTS_QUERY = f"fields @timestamp, @logStream, @message | limit {INSIGHTS_ROW_LIMIT}"
 INSIGHTS_POLL_S = 0.25
-# Budget for a read whose caller supplied no request deadline (/_status/series).
-INSIGHTS_DEFAULT_WAIT_S = 15
+# Budget for a read whose caller supplied no request deadline (/_status/series):
+# leaves room inside main.tf's Lambda timeout for auth (AUTH_TIMEOUT_S) and the
+# metric reads that follow.
+INSIGHTS_DEFAULT_WAIT_S = 10
 
 # Matches RANGES' longest window so the incidents table is never quietly
 # missing older episodes that the 1y uptime number already reflects.
