@@ -21,6 +21,7 @@ import { Incidents } from './panels/Incidents';
 import { Reliability } from './panels/Reliability';
 import { Spot } from './panels/Spot';
 import { Storage } from './panels/Storage';
+import { RetryContext } from './ui/Card';
 import { PanelBoundary } from './ui/PanelBoundary';
 import { Section } from './ui/Section';
 
@@ -77,22 +78,28 @@ async function computeState(): Promise<AppState> {
   return { phase: 'data', data, meta };
 }
 
+async function loadState(): Promise<AppState> {
+  try {
+    return await computeState();
+  } catch {
+    return { phase: 'gate', gate: { kind: 'error' } };
+  }
+}
+
 export function App() {
   const [state, setState] = useState<AppState>({ phase: 'loading' });
 
   useEffect(() => {
     let cancelled = false;
-    void computeState()
-      .then((next) => {
-        if (!cancelled) setState(next);
-      })
-      .catch(() => {
-        if (!cancelled) setState({ phase: 'gate', gate: { kind: 'error' } });
-      });
+    void loadState().then((next) => {
+      if (!cancelled) setState(next);
+    });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const retry = () => void loadState().then(setState);
 
   // Owns skeleton removal: the moment state transitions out of "loading",
   // remove #skeleton via a plain DOM call -- #skeleton is a dedicated sibling,
@@ -138,7 +145,7 @@ export function App() {
     // Deliberately no section heading: a single group (reliability +
     // incidents) needs no heading either way.
     return (
-      <>
+      <RetryContext.Provider value={retry}>
         <PanelBoundary resetKey={state.data} title="Reliability">
           <Reliability
             d={state.data.reliability}
@@ -156,7 +163,7 @@ export function App() {
             spotEnabled={state.data.spot_enabled}
           />
         </PanelBoundary>
-      </>
+      </RetryContext.Provider>
     );
   }
 
@@ -168,7 +175,7 @@ export function App() {
   // their headings render unconditionally.
   const { data, meta } = state;
   return (
-    <>
+    <RetryContext.Provider value={retry}>
       <Section title="Service" />
       <PanelBoundary resetKey={state.data} title="Reliability">
         <Reliability d={data.reliability} episodes={data.incidents} changes={data.changes} canPan />
@@ -220,6 +227,6 @@ export function App() {
           </PanelBoundary>
         </>
       )}
-    </>
+    </RetryContext.Provider>
   );
 }

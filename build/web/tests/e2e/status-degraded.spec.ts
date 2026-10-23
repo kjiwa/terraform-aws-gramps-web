@@ -38,6 +38,42 @@ test('a degraded panel shows its own error note without taking its siblings down
   await expect(page.locator('#gate')).toBeHidden();
 });
 
+test('a timed-out panel offers Retry, which refetches and renders the panel', async ({
+  page,
+  startStatus,
+}) => {
+  const baseURL = await startStatus({
+    server: {
+      toggles: ALL_TOGGLES_ON,
+      firstDataOverride: { status: 200, body: degradedPayload(['incidents'], 'timed out') },
+    },
+    tokens: { access: 'e2e-access-token' },
+  });
+  await page.goto(`${baseURL}/_status`);
+
+  const card = page.locator('.card', { hasText: 'Incidents' });
+  await expect(card.locator('.err')).toContainText("Didn't load in time.");
+  await card.getByRole('button', { name: 'Retry' }).click();
+
+  await expect(card.locator('.err')).toHaveCount(0);
+  await expect(card.locator('.stat-row')).toHaveCount(1);
+});
+
+test('a non-timeout panel error has no Retry', async ({ page, startStatus }) => {
+  const baseURL = await startStatus({
+    server: {
+      toggles: ALL_TOGGLES_ON,
+      dataOverride: { status: 200, body: degradedPayload(['backups']) },
+    },
+    tokens: { access: 'e2e-access-token' },
+  });
+  await page.goto(`${baseURL}/_status`);
+
+  const card = page.locator('.card', { hasText: 'Backups' });
+  await expect(card.locator('.err')).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+});
+
 test('signed out with public_reliability on: public panels render with the signin gate below them', async ({
   page,
   startStatus,

@@ -31,6 +31,8 @@ export interface RouteOverride {
 export interface ServerOptions {
   toggles: Toggles;
   dataOverride?: RouteOverride;
+  /** Answers only the first GET /_status/data; later requests take the normal path. */
+  firstDataOverride?: RouteOverride;
   publicOverride?: RouteOverride;
   metadataOverride?: RouteOverride;
   refreshOverride?: RouteOverride;
@@ -79,6 +81,7 @@ export function startStatusServer(opts: ServerOptions): Promise<RunningServer> {
   // spliceConfig: false -- the built shell already carries a real
   // <script src="/_status/config.js">, so this server serves that route for
   // real (below) rather than shellHtml() masking it with an inline splice.
+  let firstDataPending = opts.firstDataOverride;
   const shell = shellHtml(opts.toggles, { spliceConfig: false });
 
   function handle(req: IncomingMessage, res: ServerResponse): void {
@@ -97,6 +100,12 @@ export function startStatusServer(opts: ServerOptions): Promise<RunningServer> {
     }
 
     if (req.method === 'GET' && path === '/_status/data') {
+      if (firstDataPending) {
+        const { status, body } = firstDataPending;
+        firstDataPending = undefined;
+        sendJson(res, status, body);
+        return;
+      }
       if (opts.dataOverride) {
         sendJson(res, opts.dataOverride.status, opts.dataOverride.body);
         return;

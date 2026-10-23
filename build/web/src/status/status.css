@@ -208,6 +208,15 @@ a {
   color: var(--gw-bad);
   font-size: var(--gw-text-md);
 }
+.card .err .btn-retry {
+  border: 1px solid var(--gw-border);
+  background: var(--gw-card);
+  color: var(--gw-on-surface);
+  border-radius: 0.3rem;
+  padding: var(--gw-space-1) var(--gw-space-3);
+  font-size: var(--gw-text-sm);
+  cursor: pointer;
+}
 .section-head {
   grid-column: 1 / -1;
   display: flex;
@@ -325,7 +334,8 @@ a:focus-visible,
 .strip:focus-visible,
 .lane:focus-visible,
 .chart-scrub:focus-visible,
-.window-nav button:focus-visible {
+.window-nav button:focus-visible,
+.btn-retry:focus-visible {
   outline: 2px solid var(--gw-secondary);
   outline-offset: 2px;
 }
