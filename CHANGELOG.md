@@ -4,6 +4,22 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- Status page: a Retry button on panels that time out.
+- Status page: a Changes card under Delivery, with a Deliberate|All toggle.
+
+### Changed
+
+- Status page: the Lambdas read logs with CloudWatch Logs Insights, one query per log group per request, which fixes panels timing out.
+- IAM, shipped in this module: the status role gains `logs:StartQuery` and `logs:GetQueryResults` and loses `logs:FilterLogEvents`. Consumers need this module version for the status page to load.
+- Status page: Spot is a subsection of the Incidents card, which takes the page's five ranges and pans in the browser. The Absorbed tile and the weekly table are removed.
+- Status page: the sections are Service, Delivery, Data, Runtime, and Spend.
+
+### Removed
+
+- Status page: the events lane. A strip cell's readout names its incidents.
+
 ## [1.0.0] - 2026-10-22
 
 First stable release. The inputs and outputs below are the supported interface.

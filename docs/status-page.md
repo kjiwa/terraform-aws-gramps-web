@@ -32,9 +32,9 @@ Instance IDs, instance types, zones, deployment IDs, and descriptions stay priva
 
 | Source | Written by | Read for |
 |---|---|---|
-| `SiteUp` and latency metrics | The availability Lambda probes the site through CloudFront every minute. | Uptime tiles, the strip, latency, and the exact edges of every outage. |
+| `SiteUp` and latency metrics | The availability Lambda probes the site through CloudFront every minute. | Uptime tiles, the strip (a cell's readout names its incidents), latency, and the exact edges of every outage. |
 | Episodes log | The availability Lambda appends one JSON line per completed outage. | Incidents, causes, recovery timing. |
-| Change log | The availability Lambda appends one line per finished CodeDeploy deployment and ASG instance refresh, from EventBridge events. | Changes and the event markers on the strip. |
+| Change log | The availability Lambda appends one line per finished CodeDeploy deployment and ASG instance refresh, from EventBridge events. | Changes. |
 | Spot interruption log | An EventBridge rule writes every EC2 Spot Interruption Warning to a log group (365-day retention). | Spot reclaim counts. |
 | Cause markers | SSM parameters holding `{time, instance_id}`, written by the host watchdogs and `scripts/backup.sh`. | Cause attribution. |
 | CodeDeploy and Auto Scaling | Read directly by the status Lambda for the live panels, and by the availability Lambda for cause attribution. | Deployment, host, and the pulled causes below. |
@@ -65,17 +65,28 @@ The `planned` flag is true for `rightsize`, `deploy`, `instance-refresh`, `capac
 
 A change record is marked as having caused an outage when an episode of the same kind overlaps it within 90 seconds. A deployment that overlaps an episode of another cause, or an Auto Scaling launch deployment, is not blamed.
 
-## Spot reclaim panel
+## Incidents card
 
-Shown when the deployment has Spot activity. The range is 30 days, 90 days, or one year, selected in the browser. Weeks start on Monday, UTC.
+Ranges are 24 hours, 7 days, 30 days, 90 days, and one year, the same as the reliability card. The chart stacks incidents per cell by cause class. Arrows pan the window within the last year in the browser, including on the public route. The table lists the incidents in the window.
+
+### Spot
+
+A subsection of the card, shown when the deployment has Spot activity. It follows the card's range.
 
 | Figure | Definition |
 |---|---|
 | Reclaims | Spot interruption warnings in range. |
 | Caused an outage | Incidents with cause `spot-reclaim` in range. |
-| Absorbed | Per week, warnings minus `spot-reclaim` incidents, floored at zero, summed. Approximate, because a warning cannot be tied to its incident. |
-| Downtime | Total duration of the `spot-reclaim` incidents. |
-| Share of downtime | That downtime over the downtime of every incident in range. |
-| Median recovery, p90 | Median and nearest-rank 90th percentile of `spot-reclaim` incident durations. |
+| Share of downtime | Downtime of the `spot-reclaim` incidents over the downtime of every incident in range. |
 
-The authenticated page adds two views that need instance details. The recovery split shows the median capacity wait (outage start to replacement launch) against the median boot-to-serve time (launch to recovery); it needs at least three incidents carrying both timings. The pool table groups reclaims by the lost instance's type and zone, with the median instance lifetime and the most recent reclaim, folding the tail into an "Other" row.
+The authenticated page adds two views that need instance details. The recovery split shows the median capacity wait (outage start to replacement launch) against the median boot-to-serve time (launch to recovery); it appears once at least three incidents carry both timings. The Pools table groups reclaims by the lost instance's type and zone, with the median instance lifetime and the most recent reclaim, folding the tail into an "Other" row.
+
+## Changes card
+
+Under Delivery. The Deliberate|All toggle defaults to Deliberate: user and rollback deployments and instance refreshes. All adds deployments created by Auto Scaling. The toggle is hidden when no other changes exist, which includes the public route. Each row shows time, change, outcome, duration, and whether it caused an outage.
+
+## Layout and loading
+
+Sections are Service (Reliability, Incidents), Delivery (Deployment, Changes), Data (Backups, Storage), Runtime (Host, Assistant), and Spend (Cost). A panel that times out shows "Didn't load in time." with a Retry button that refetches it.
+
+The Lambdas read the episodes and Spot logs with CloudWatch Logs Insights, once per log group per request. The status role needs `logs:StartQuery` and `logs:GetQueryResults` on those log groups.
