@@ -4,6 +4,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-22
+
 ### Added
 
 - Status page: a Retry button on panels that time out.
@@ -74,7 +76,8 @@ First stable release. The inputs and outputs below are the supported interface.
 - `examples/minimal`, composing the module with the keel DNS, cost budget, and audit modules.
 - Contract tests for the root module, a hygiene check, and pre-commit configuration.
 
-[Unreleased]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v0.9.3...v1.0.0
 [0.9.3]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v0.9.1...v0.9.2
