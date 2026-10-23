@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-23
+
+### Changed
+
+- Status page: below three timed Spot outages, the recovery split is replaced by a note giving how many outages carry timing, instead of being hidden.
+
 ## [1.1.0] - 2026-10-22
 
 ### Added
@@ -76,7 +82,8 @@ First stable release. The inputs and outputs below are the supported interface.
 - `examples/minimal`, composing the module with the keel DNS, cost budget, and audit modules.
 - Contract tests for the root module, a hygiene check, and pre-commit configuration.
 
-[Unreleased]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v0.9.3...v1.0.0
 [0.9.3]: https://github.com/kjiwa/terraform-aws-gramps-web/compare/v0.9.2...v0.9.3

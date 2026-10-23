@@ -25,7 +25,7 @@ async function openOperator(page: Page, start: Start, body = payloadFor(ALL_TOGG
     tokens: { access: 'e2e-access-token' },
   });
   await page.goto(`${baseURL}/_status`);
-  await expect(page.locator('.card > h3').first()).toBeVisible();
+  await expect(page.locator('#panels .card > h3').first()).toBeVisible();
 }
 
 test('shows tiles, the cause-stacked chart, and the operator views with data', async ({

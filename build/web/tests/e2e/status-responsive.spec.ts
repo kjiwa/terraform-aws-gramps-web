@@ -31,7 +31,7 @@ for (const viewport of VIEWPORTS) {
         localStorage: { grampsjs_settings: JSON.stringify({ theme: themeName }) },
       });
       await page.goto(`${baseURL}/_status`);
-      await expect(page.locator('.card > h3').first()).toBeVisible();
+      await expect(page.locator('#panels .card > h3').first()).toBeVisible();
 
       await expect(page.locator('html')).toHaveAttribute('data-theme', themeName);
 

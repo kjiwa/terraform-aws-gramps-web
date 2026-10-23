@@ -35,7 +35,7 @@ async function gotoStatus(
     localStorage: { grampsjs_settings: JSON.stringify({ theme }) },
   });
   await page.goto(`${baseURL}/_status`);
-  await expect(page.locator('.card > h3').first()).toBeVisible();
+  await expect(page.locator('#panels .card > h3').first()).toBeVisible();
 }
 
 for (const viewport of VIEWPORTS) {

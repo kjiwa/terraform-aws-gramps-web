@@ -100,7 +100,7 @@ CodePipeline and CodeBuild pull `build/` and `scripts/` from `repo_url` on `sour
 
 ```hcl
 module "gramps_web" {
-  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.1.0"
+  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.1.1"
   repo_url      = "https://github.com/<you>/terraform-aws-gramps-web"
   source_branch = "release-1.1"
   # ...

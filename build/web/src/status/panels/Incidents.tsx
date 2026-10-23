@@ -19,6 +19,7 @@ import {
   percentile,
   poolTable,
   recoverySplit,
+  SPLIT_MIN_EPISODES,
   spotData,
   summarize,
   type PoolRow,
@@ -128,6 +129,17 @@ function SplitBar({ split }: { split: RecoverySplit }) {
   );
 }
 
+function SplitPending({ timed, total }: { timed: number; total: number }) {
+  return (
+    <>
+      <h4>Recovery split</h4>
+      <p class="note">
+        {`Recovery timing recorded for ${timed} of ${total} outages; the split appears at ${SPLIT_MIN_EPISODES}.`}
+      </p>
+    </>
+  );
+}
+
 function PoolTable({ rows }: { rows: PoolRow[] }) {
   return (
     <details>
@@ -174,7 +186,7 @@ function SpotSection({
 }) {
   const s = summarize(data, window);
   const outages = episodesIn(data, window).filter(isSpotEpisode);
-  const split = recoverySplit(outages).split;
+  const { timed, split } = recoverySplit(outages);
   const items: [ComponentChildren, string, string?][] = [
     [String(s.reclaims), 'Reclaim warnings', 'Spot interruption warnings in range'],
     [String(s.outages), 'Caused an outage', 'Spot-reclaim episodes in range'],
@@ -191,6 +203,9 @@ function SpotSection({
         <StatRow items={items} />
       </div>
       {operator && split && <SplitBar split={split} />}
+      {operator && !split && outages.length > 0 && (
+        <SplitPending timed={timed} total={outages.length} />
+      )}
       {operator && outages.length > 0 && <PoolTable rows={poolTable(outages)} />}
     </>
   );

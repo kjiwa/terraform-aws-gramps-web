@@ -22,7 +22,7 @@ async function gotoStatus(
 ): Promise<void> {
   const baseURL = await startStatus(opts);
   await page.goto(`${baseURL}/_status`);
-  await expect(page.locator('.card > h3').first()).toBeVisible();
+  await expect(page.locator('#panels .card > h3').first()).toBeVisible();
 }
 
 test('panning back changes the strip, leaves the five tiles untouched, and shows the echoed window', async ({
