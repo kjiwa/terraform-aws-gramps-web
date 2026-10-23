@@ -1,35 +1,14 @@
 import type { Episode, Interruption, PanelError } from '../generated/status-payload';
-import { RANGE_SPAN_S } from './ranges';
-
-export type SpotRange = '30d' | '90d' | '1y';
-export const SPOT_RANGES: SpotRange[] = ['30d', '90d', '1y'];
-export const SPOT_DEFAULT_RANGE: SpotRange = '30d';
+import type { TimeWindow } from './ranges';
 
 /** Fewest outages carrying both timing fields before the recovery split draws a bar. */
 export const SPLIT_MIN_EPISODES = 3;
 export const POOL_ROWS = 6;
 
-const DAY_MS = 86400 * 1000;
-const WEEK_MS = 7 * DAY_MS;
-// Weeks start on Monday (ISO 8601). The epoch was a Thursday, so the Monday
-// before it sits 3 days earlier; pure UTC millisecond arithmetic keeps the
-// buckets independent of any local timezone or DST.
-const MONDAY_OFFSET_MS = 3 * DAY_MS;
-
-export interface WeekBucket {
-  start: string;
-  outages: number;
-  absorbed: number;
-}
-
 export interface SpotSummary {
   reclaims: number;
   outages: number;
-  absorbed: number;
-  downtimeS: number;
   downtimeShare: number | null;
-  medianS: number | null;
-  p90S: number | null;
 }
 
 export interface RecoverySplit {
@@ -74,25 +53,17 @@ export function hasSpotActivity(data: SpotData): boolean {
   return data.warnings.length > 0 || data.episodes.some(isSpotEpisode);
 }
 
-export function rangeStartMs(range: SpotRange, nowMs: number): number {
-  return nowMs - RANGE_SPAN_S[range] * 1000;
-}
-
-function inRange(iso: string, range: SpotRange, nowMs: number): boolean {
+function inWindow(iso: string, w: TimeWindow): boolean {
   const t = Date.parse(iso);
-  return t >= rangeStartMs(range, nowMs) && t <= nowMs;
+  return t >= w.startMs && t <= w.endMs;
 }
 
-export function warningsIn(data: SpotData, range: SpotRange, nowMs: number): Interruption[] {
-  return data.warnings.filter((w) => inRange(w.time, range, nowMs));
+export function warningsIn(data: SpotData, w: TimeWindow): Interruption[] {
+  return data.warnings.filter((x) => inWindow(x.time, w));
 }
 
-export function episodesIn(data: SpotData, range: SpotRange, nowMs: number): Episode[] {
-  return data.episodes.filter((ep) => inRange(ep.started, range, nowMs));
-}
-
-export function weekStartMs(ms: number): number {
-  return Math.floor((ms + MONDAY_OFFSET_MS) / WEEK_MS) * WEEK_MS - MONDAY_OFFSET_MS;
+export function episodesIn(data: SpotData, w: TimeWindow): Episode[] {
+  return data.episodes.filter((ep) => inWindow(ep.started, w));
 }
 
 export function median(values: number[]): number | null {
@@ -111,47 +82,14 @@ export function percentile(values: number[], p: number): number | null {
   return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)] ?? null;
 }
 
-/**
- * One bucket per ISO week from the week holding the range start to the week
- * holding now. Per week: outage episodes of cause spot-reclaim, and the
- * warnings beyond them (floored at zero) as absorbed. A warning cannot be
- * tied to its episode, so absorbed is approximate by construction.
- */
-export function weeklyBuckets(data: SpotData, range: SpotRange, nowMs: number): WeekBucket[] {
-  const first = weekStartMs(rangeStartMs(range, nowMs));
-  const last = weekStartMs(nowMs);
-  const count = Math.round((last - first) / WEEK_MS) + 1;
-  const warnings = new Array<number>(count).fill(0);
-  const outages = new Array<number>(count).fill(0);
-  const bump = (counts: number[], iso: string) => {
-    const i = Math.round((weekStartMs(Date.parse(iso)) - first) / WEEK_MS);
-    if (i >= 0 && i < count) counts[i] = (counts[i] ?? 0) + 1;
-  };
-  warningsIn(data, range, nowMs).forEach((w) => bump(warnings, w.time));
-  episodesIn(data, range, nowMs)
-    .filter(isSpotEpisode)
-    .forEach((ep) => bump(outages, ep.started));
-  return outages.map((o, i) => ({
-    start: new Date(first + i * WEEK_MS).toISOString(),
-    outages: o,
-    absorbed: Math.max(0, (warnings[i] ?? 0) - o),
-  }));
-}
-
-export function summarize(data: SpotData, range: SpotRange, nowMs: number): SpotSummary {
-  const spot = episodesIn(data, range, nowMs).filter(isSpotEpisode);
-  const all = episodesIn(data, range, nowMs);
-  const durations = spot.map((ep) => ep.duration_s);
-  const downtimeS = durations.reduce((a, b) => a + b, 0);
+export function summarize(data: SpotData, w: TimeWindow): SpotSummary {
+  const all = episodesIn(data, w);
+  const spotDownS = all.filter(isSpotEpisode).reduce((a, ep) => a + ep.duration_s, 0);
   const totalS = all.reduce((a, ep) => a + ep.duration_s, 0);
   return {
-    reclaims: warningsIn(data, range, nowMs).length,
-    outages: spot.length,
-    absorbed: weeklyBuckets(data, range, nowMs).reduce((a, w) => a + w.absorbed, 0),
-    downtimeS,
-    downtimeShare: totalS > 0 ? (downtimeS / totalS) * 100 : null,
-    medianS: median(durations),
-    p90S: percentile(durations, 0.9),
+    reclaims: warningsIn(data, w).length,
+    outages: all.filter(isSpotEpisode).length,
+    downtimeShare: totalS > 0 ? (spotDownS / totalS) * 100 : null,
   };
 }
 

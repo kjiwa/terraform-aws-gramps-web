@@ -1,5 +1,7 @@
 import type { Episode, ReliabilityCell } from '../generated/status-payload';
 import { fmtDuration } from '../shared/format';
+import { CAUSE_CLASSES, causeClass } from './causes';
+import { cellOf, type Grid } from './ranges';
 
 export interface StripWindow {
   startMs: number;
@@ -42,4 +44,31 @@ export function incidentsText(episodes: Episode[]): string {
   const rest = episodes.length - named.length;
   if (rest > 0) named.push(`+${rest} more`);
   return `${episodes.length} incident${episodes.length === 1 ? '' : 's'}: ${named.join(', ')}`;
+}
+
+/** Per cell of `grid`, episode counts by cause class in CAUSE_CLASSES order; episodes outside the grid are dropped. */
+export function incidentCounts(grid: Grid, episodes: Episode[]): number[][] {
+  const counts = Array.from({ length: grid.count }, () => CAUSE_CLASSES.map(() => 0));
+  episodes.forEach((ep) => {
+    const cell = counts[cellOf(grid, Date.parse(ep.started))];
+    const slot = CAUSE_CLASSES.findIndex((c) => c.id === causeClass(ep));
+    if (cell) cell[slot] = (cell[slot] ?? 0) + 1;
+  });
+  return counts;
+}
+
+const DAY_MS = 86400 * 1000;
+
+const isoDate = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+const isoHour = (ms: number) => new Date(ms).toISOString().slice(0, 13).replace('T', ' ') + ':00';
+
+/** Tooltip title and short axis label of cell `index`, in UTC like every other time on the page. */
+export function cellLabel(grid: Grid, index: number): { title: string; label: string } {
+  const start = grid.startMs + index * grid.cellMs;
+  if (grid.cellMs < DAY_MS) {
+    return { title: `${isoHour(start)} UTC`, label: isoHour(start).slice(5) };
+  }
+  if (grid.cellMs === DAY_MS) return { title: isoDate(start), label: isoDate(start).slice(5) };
+  const last = isoDate(start + grid.cellMs - DAY_MS);
+  return { title: `${isoDate(start)} – ${last}`, label: isoDate(start).slice(5) };
 }

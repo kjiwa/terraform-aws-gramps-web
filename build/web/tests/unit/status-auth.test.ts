@@ -31,7 +31,7 @@ describe('status-auth', () => {
       mounted.document.querySelectorAll('.card > h3'),
       (el) => el.textContent,
     );
-    expect(cardTitles).toEqual(['Reliability', 'Incidents (1y)', 'Spot reclaims']);
+    expect(cardTitles).toEqual(['Reliability', 'Incidents']);
     const gate = gateOf(mounted.document);
     expect(gate.classList.contains('hidden')).toBe(false);
     expect(gate.querySelector('h2')?.textContent).toBe('Please sign in');

@@ -1,6 +1,6 @@
 /**
- * The Spot reclaims panel and the Changes
- * table, mounted in jsdom: presence rules, the client-side range toggle, the
+ * The Incidents card (with its Spot subsection) and the Changes
+ * table, mounted in jsdom: presence rules, the client-side range and pan, the
  * operator-only views, and what the public route does and does not show.
  * jsdom has no layout, so the bar chart's SVG is covered by Playwright
  * (tests/e2e/status-spot.spec.ts); everything else renders here.
@@ -71,95 +71,125 @@ function headings(c: Element | undefined): (string | null)[] {
   return [...(c?.querySelectorAll('h4') ?? [])].map((h) => h.textContent);
 }
 
-describe('Spot panel presence', () => {
-  it('follows Incidents in the Service section, on both routes', async () => {
+describe('Spot subsection presence', () => {
+  it('has no card of its own: Incidents follows Reliability, on both routes', async () => {
     const titles = (m: Mounted) =>
       [...m.document.querySelectorAll('.card > h3')].map((h) => h.textContent);
-    expect(titles(await mountOperator()).slice(0, 3)).toEqual([
-      'Reliability',
-      'Incidents (1y)',
-      'Spot reclaims',
-    ]);
-    expect(titles(await mountPublic())).toEqual(['Reliability', 'Incidents (1y)', 'Spot reclaims']);
+    expect(titles(await mountOperator()).slice(0, 2)).toEqual(['Reliability', 'Incidents']);
+    expect(titles(await mountPublic())).toEqual(['Reliability', 'Incidents']);
   });
 
   it('is absent for On-Demand with no reclaims', async () => {
-    const m = await mountOperator(quietSpotPayload(false));
-    expect(card(m, 'Spot reclaims')).toBeUndefined();
-    expect(card(await mountPublic(quietSpotPayload(false)), 'Spot reclaims')).toBeUndefined();
+    const op = card(await mountOperator(quietSpotPayload(false)), 'Incidents');
+    expect(headings(op)).not.toContain('Spot reclaims');
+    const pub = card(await mountPublic(quietSpotPayload(false)), 'Incidents');
+    expect(headings(pub)).not.toContain('Spot reclaims');
   });
 
   it('is present at zero for a Spot deployment with no reclaims', async () => {
-    const m = await mountOperator(quietSpotPayload(true));
-    const spot = card(m, 'Spot reclaims');
-    expect(spot).toBeDefined();
-    expect(tiles(spot)['Reclaims']).toBe('0');
-    expect(tiles(spot)['Caused an outage']).toBe('0');
-    expect(spot?.textContent).toContain('No reclaims in the last 30 days.');
-    expect(spot?.querySelector('.bar-chart')).toBeNull();
-    press(spot, '1y');
-    expect(spot?.textContent).toContain('No reclaims in the last year.');
+    const incidents = card(await mountOperator(quietSpotPayload(true)), 'Incidents');
+    expect(headings(incidents)).toContain('Spot reclaims');
+    expect(tiles(incidents)['Reclaim warnings']).toBe('0');
+    expect(tiles(incidents)['Caused an outage']).toBe('0');
+    expect(incidents?.querySelector('.split-bar')).toBeNull();
   });
 
   it('shows for an On-Demand deployment whose year still holds a reclaim', async () => {
     const data = payloadFor(ALL_TOGGLES_ON);
     data.spot_enabled = false;
-    expect(card(await mountOperator(data), 'Spot reclaims')).toBeDefined();
+    const incidents = card(await mountOperator(data), 'Incidents');
+    expect(headings(incidents)).toContain('Spot reclaims');
   });
 });
 
-describe('Spot panel contents', () => {
-  it('counts warnings in range independently of the payload helpers, and the toggle re-slices client-side', async () => {
+describe('Incidents range model', () => {
+  it('counts warnings and episodes per window independently of the helpers, re-slicing client-side', async () => {
     const data = payloadFor(ALL_TOGGLES_ON);
-    const warningsWithin = (days: number) =>
-      (Array.isArray(data.interruptions) ? data.interruptions : []).filter(
-        (w) => Date.parse(w.time) >= NOW - days * DAY && Date.parse(w.time) <= NOW,
-      ).length;
+    const warnings = Array.isArray(data.interruptions) ? data.interruptions : [];
+    const episodes = Array.isArray(data.incidents) ? data.incidents : [];
+    const within = (days: number, iso: string) =>
+      Date.parse(iso) >= NOW - days * DAY && Date.parse(iso) <= NOW;
     const m = await mountOperator(data);
-    const spot = card(m, 'Spot reclaims');
-    expect(tiles(spot)['Reclaims']).toBe(String(warningsWithin(30)));
-
+    const incidents = card(m, 'Incidents');
     const callsBefore = m.fetchCalls.length;
-    press(spot, '90d');
-    expect(tiles(spot)['Reclaims']).toBe(String(warningsWithin(90)));
-    press(spot, '1y');
-    expect(tiles(spot)['Reclaims']).toBe(String(warningsWithin(365)));
+    const spans: [string, number][] = [
+      ['30d', 30],
+      ['90d', 90],
+      ['1y', 364],
+    ];
+    for (const [label, days] of spans) {
+      press(incidents, label);
+      expect(tiles(incidents)['Reclaim warnings']).toBe(
+        String(warnings.filter((w) => within(days, w.time)).length),
+      );
+      expect(tiles(incidents)['incidents']).toBe(
+        String(episodes.filter((ep) => within(days, ep.started)).length),
+      );
+    }
     expect(m.fetchCalls.length).toBe(callsBefore);
   });
 
-  it('lists the same weekly numbers in the data table as the tiles total', async () => {
-    const spot = card(await mountOperator(), 'Spot reclaims');
-    const rows = [...(spot?.querySelectorAll('details tbody tr') ?? [])].map((tr) =>
-      [...tr.querySelectorAll('td')].map((td) => Number(td.textContent) || 0),
-    );
-    const outages = rows.reduce((a, r) => a + (r[1] ?? 0), 0);
-    const absorbed = rows.reduce((a, r) => a + (r[2] ?? 0), 0);
-    expect(String(outages)).toBe(tiles(spot)['Caused an outage']);
-    expect(String(absorbed)).toBe(tiles(spot)['Absorbed']);
-    expect(spot?.textContent).toContain('Absorbed is approximate');
+  it('offers all five ranges, defaulting to 30d', async () => {
+    const incidents = card(await mountOperator(), 'Incidents');
+    const buttons = [...(incidents?.querySelectorAll('.toggle-group button') ?? [])];
+    expect(buttons.map((b) => b.textContent)).toEqual(['24h', '7d', '30d', '90d', '1y']);
+    expect(buttons.filter((b) => b.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
+    expect(buttons.find((b) => b.getAttribute('aria-pressed') === 'true')?.textContent).toBe('30d');
   });
 
-  it('shows recovery split and pools to an operator only', async () => {
-    const operator = card(await mountOperator(), 'Spot reclaims');
-    expect(headings(operator)).toEqual(['Reclaims per week', 'Recovery split', 'Pools']);
-    expect(operator?.querySelector('.split-bar')).not.toBeNull();
-    const poolRows = operator?.querySelectorAll('h4 ~ .table-scroll tbody tr') ?? [];
-    expect(poolRows.length).toBeLessThanOrEqual(7);
+  it('makes the table follow the window', async () => {
+    const incidents = card(await mountOperator(), 'Incidents');
+    const summaryCount = () =>
+      Number(/^(\d+) incident/.exec(incidents?.querySelector('summary')?.textContent ?? '')?.[1]);
+    expect(summaryCount()).toBe(Number(tiles(incidents)['incidents']));
+    press(incidents, '1y');
+    expect(summaryCount()).toBe(Number(tiles(incidents)['incidents']));
+  });
 
-    const publicCard = card(await mountPublic(), 'Spot reclaims');
-    expect(headings(publicCard)).toEqual(['Reclaims per week']);
+  it('pans client-side and returns to live', async () => {
+    const m = await mountOperator();
+    const incidents = card(m, 'Incidents');
+    const label = () => incidents?.querySelector('.window-nav span')?.textContent;
+    const callsBefore = m.fetchCalls.length;
+    expect(label()).toBe('Live');
+    (incidents?.querySelector('[aria-label="Earlier window"]') as HTMLElement).click();
+    expect(label()).not.toBe('Live');
+    expect(label()).toMatch(/UTC/);
+    [...(incidents?.querySelectorAll('.window-nav button') ?? [])]
+      .find((b) => b.textContent === 'Now')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(label()).toBe('Live');
+    expect(m.fetchCalls.length).toBe(callsBefore);
+  });
+});
+
+describe('Spot subsection contents', () => {
+  it('shows recovery split and pools to an operator only, pools collapsed', async () => {
+    const operator = card(await mountOperator(), 'Incidents');
+    expect(headings(operator)).toEqual(['Spot reclaims', 'Recovery split']);
+    expect(operator?.querySelector('.split-bar')).not.toBeNull();
+    const pools = [...(operator?.querySelectorAll('details') ?? [])].find(
+      (d) => d.querySelector('summary')?.textContent === 'Pools',
+    );
+    expect(pools).toBeDefined();
+    expect(pools?.hasAttribute('open')).toBe(false);
+    expect(pools?.querySelectorAll('tbody tr').length).toBeLessThanOrEqual(7);
+
+    const publicCard = card(await mountPublic(), 'Incidents');
+    expect(headings(publicCard)).toEqual(['Spot reclaims']);
     expect(publicCard?.querySelector('.split-bar')).toBeNull();
     expect(Object.keys(tiles(publicCard))).toEqual([
-      'Reclaims',
+      'incidents',
+      'total downtime',
+      'unplanned',
+      'median recovery',
+      'Reclaim warnings',
       'Caused an outage',
-      'Absorbed',
-      'Downtime',
       'Share of downtime',
-      'Median recovery',
     ]);
   });
 
-  it('replaces the split with a count note below three timed outages, never inventing numbers', async () => {
+  it('draws no split, and no placeholder, below three timed outages', async () => {
     const data = payloadFor(ALL_TOGGLES_ON);
     if (Array.isArray(data.incidents)) {
       data.incidents.forEach((ep) => {
@@ -167,11 +197,11 @@ describe('Spot panel contents', () => {
         delete ep.boot_to_serve_s;
       });
     }
-    const spot = card(await mountOperator(data), 'Spot reclaims');
-    expect(spot?.querySelector('.split-bar')).toBeNull();
-    expect(spot?.textContent).toMatch(
-      /Recovery timing is recorded for 0 of \d+ reclaim outages so far/,
-    );
+    const incidents = card(await mountOperator(data), 'Incidents');
+    expect(incidents?.querySelector('.split-bar')).toBeNull();
+    expect(headings(incidents)).toEqual(['Spot reclaims']);
+    expect(incidents?.textContent).not.toContain('Recovery timing is recorded');
+    expect(incidents?.textContent).not.toContain('Absorbed');
   });
 });
 
@@ -185,20 +215,26 @@ describe('events lane removal', () => {
 });
 
 describe('Changes table', () => {
-  function changeRows(c: Element | undefined): string[][] {
-    const details = [...(c?.querySelectorAll('details') ?? [])].find((d) =>
+  function changeDetails(c: Element | undefined): Element | undefined {
+    return [...(c?.querySelectorAll('details') ?? [])].find((d) =>
       d.querySelector('summary')?.textContent?.includes('change'),
     );
+  }
+
+  function changeHeaders(c: Element | undefined): (string | null)[] {
+    return [...(changeDetails(c)?.querySelectorAll('th') ?? [])].map((th) => th.textContent);
+  }
+
+  function changeRows(c: Element | undefined): string[][] {
+    const details = changeDetails(c);
     return [...(details?.querySelectorAll('tbody tr') ?? [])].map((tr) =>
       [...tr.querySelectorAll('td')].map((td) => td.textContent ?? ''),
     );
   }
 
   it('lists everything the payload carries for an operator, newest first', async () => {
-    const incidents = card(await mountOperator(), 'Incidents (1y)');
-    const headers = [
-      ...(incidents?.querySelectorAll('details')[1]?.querySelectorAll('th') ?? []),
-    ].map((th) => th.textContent);
+    const incidents = card(await mountOperator(), 'Incidents');
+    const headers = changeHeaders(incidents);
     expect(headers).toEqual([
       'Time (UTC)',
       'What',
@@ -219,14 +255,12 @@ describe('Changes table', () => {
   });
 
   it('lists deliberate changes only, and only the carried columns, on the public route', async () => {
-    const incidents = card(await mountPublic(), 'Incidents (1y)');
+    const incidents = card(await mountPublic(), 'Incidents');
     const rows = changeRows(incidents);
     const expected = publicPayload().changes;
     expect(rows).toHaveLength(Array.isArray(expected) ? expected.length : -1);
     expect(rows.map((r) => r[2])).not.toContain('autoscaling');
-    const headers = [
-      ...(incidents?.querySelectorAll('details')[1]?.querySelectorAll('th') ?? []),
-    ].map((th) => th.textContent);
+    const headers = changeHeaders(incidents);
     expect(headers).toEqual(['Time (UTC)', 'What', 'Trigger', 'Outcome']);
   });
 });

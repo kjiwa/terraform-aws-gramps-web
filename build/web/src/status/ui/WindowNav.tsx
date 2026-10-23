@@ -6,14 +6,14 @@ import { RANGE_SPAN_S, type RangeKey } from '../ranges';
 // status.py's SERIES_MAX_AGE_DAYS, mirrored here the same way ranges.ts
 // already mirrors RANGES: this file stays ignorant of *why* 455, only of
 // the clamp `end` must respect, and the server is the one that actually
-// enforces it.
+// enforces it. A surface with a shorter history passes its own maxAgeDays.
 const SERIES_MAX_AGE_DAYS = 455;
 
 /**
  * ◀ / ▶ / Now, plus the panned window's own label -- rendered next to a
  * surface's RangeSelector inside .range-scope. One click moves a full window
  * (`range`'s own span, from ranges.ts's RANGE_SPAN_S): ◀ disabled once a
- * further pan would pass the 455-day clamp, ▶ disabled at the live edge
+ * further pan would pass the 455-day clamp (or `maxAgeDays`), ▶ disabled at the live edge
  * (`end === null`) and clamped back to it rather than allowed to overshoot
  * into the future.
  *
@@ -27,11 +27,13 @@ export function WindowNav({
   end,
   echoedEnd,
   onChange,
+  maxAgeDays = SERIES_MAX_AGE_DAYS,
 }: {
   range: RangeKey;
   end: string | null;
   echoedEnd: string | null;
   onChange: (end: string | null) => void;
+  maxAgeDays?: number;
 }) {
   // Date.now() can't be called during render (react-hooks/purity); a lazy
   // useState reads it once, at mount, which is fine here -- both uses below
@@ -41,7 +43,7 @@ export function WindowNav({
   const [mountedAtMs] = useState(() => Date.now());
   const spanMs = RANGE_SPAN_S[range] * 1000;
   const currentMs = end === null ? mountedAtMs : new Date(end).getTime();
-  const earliestMs = mountedAtMs - SERIES_MAX_AGE_DAYS * 86400 * 1000;
+  const earliestMs = mountedAtMs - maxAgeDays * 86400 * 1000;
 
   const canBack = currentMs - spanMs >= earliestMs;
   const canForward = end !== null;

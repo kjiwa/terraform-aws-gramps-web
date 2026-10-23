@@ -19,7 +19,6 @@ import { Deployment } from './panels/Deployment';
 import { Host } from './panels/Host';
 import { Incidents } from './panels/Incidents';
 import { Reliability } from './panels/Reliability';
-import { Spot } from './panels/Spot';
 import { Storage } from './panels/Storage';
 import { RetryContext } from './ui/Card';
 import { PanelBoundary } from './ui/PanelBoundary';
@@ -149,14 +148,12 @@ export function App() {
         <PanelBoundary resetKey={state.data} title="Reliability">
           <Reliability d={state.data.reliability} episodes={state.data.incidents} />
         </PanelBoundary>
-        <PanelBoundary resetKey={state.data} title="Incidents (1y)">
-          <Incidents d={state.data.incidents} changes={state.data.changes} />
-        </PanelBoundary>
-        <PanelBoundary resetKey={state.data} title="Spot reclaims">
-          <Spot
-            incidents={state.data.incidents}
+        <PanelBoundary resetKey={state.data} title="Incidents">
+          <Incidents
+            d={state.data.incidents}
             interruptions={state.data.interruptions}
             spotEnabled={state.data.spot_enabled}
+            changes={state.data.changes}
           />
         </PanelBoundary>
       </RetryContext.Provider>
@@ -176,14 +173,12 @@ export function App() {
       <PanelBoundary resetKey={state.data} title="Reliability">
         <Reliability d={data.reliability} episodes={data.incidents} canPan />
       </PanelBoundary>
-      <PanelBoundary resetKey={state.data} title="Incidents (1y)">
-        <Incidents d={data.incidents} changes={data.changes} />
-      </PanelBoundary>
-      <PanelBoundary resetKey={state.data} title="Spot reclaims">
-        <Spot
-          incidents={data.incidents}
+      <PanelBoundary resetKey={state.data} title="Incidents">
+        <Incidents
+          d={data.incidents}
           interruptions={data.interruptions}
           spotEnabled={data.spot_enabled}
+          changes={data.changes}
           operator
         />
       </PanelBoundary>

@@ -139,12 +139,10 @@ test('signed out with public_reliability on: no pan controls render', async ({
 }) => {
   await gotoStatus(page, startStatus, { server: { toggles: ALL_TOGGLES_ON } });
 
-  await expect(page.locator('.card > h3')).toHaveText([
-    'Reliability',
-    'Incidents (1y)',
-    'Spot reclaims',
-  ]);
-  await expect(page.locator('.window-nav')).toHaveCount(0);
+  await expect(page.locator('.card > h3')).toHaveText(['Reliability', 'Incidents']);
+  await expect(
+    page.locator('.card', { hasText: 'Reliability' }).locator('.window-nav'),
+  ).toHaveCount(0);
 });
 
 // Exercises seriesFor()'s host_metrics/assistant arms too, not just

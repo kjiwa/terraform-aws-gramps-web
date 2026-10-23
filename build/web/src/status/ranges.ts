@@ -44,6 +44,42 @@ export const RANGE_SPAN_S: Record<RangeKey, number> = {
 };
 
 /**
+ * The page's own time grid for a range, one cell count and width per key
+ * (mirrors the cells the Incidents card draws; independent of the
+ * per-section series cadences in CHART_RANGES in lambda/status.py).
+ */
+export const RANGE_CELLS: Record<RangeKey, { count: number; cellS: number }> = {
+  '24h': { count: 24, cellS: 3600 },
+  '7d': { count: 28, cellS: 6 * 3600 },
+  '30d': { count: 30, cellS: 86400 },
+  '90d': { count: 90, cellS: 86400 },
+  '1y': { count: 52, cellS: 7 * 86400 },
+};
+
+export interface TimeWindow {
+  startMs: number;
+  endMs: number;
+}
+
+export interface Grid extends TimeWindow {
+  count: number;
+  cellMs: number;
+}
+
+/** `range`'s grid, its cells tiling back from `endMs`. */
+export function gridFor(range: RangeKey, endMs: number): Grid {
+  const { count, cellS } = RANGE_CELLS[range];
+  const cellMs = cellS * 1000;
+  return { startMs: endMs - count * cellMs, endMs, count, cellMs };
+}
+
+/** The cell an instant falls in, or -1 outside the grid. */
+export function cellOf(grid: Grid, ms: number): number {
+  if (ms < grid.startMs || ms > grid.endMs) return -1;
+  return Math.min(grid.count - 1, Math.floor((ms - grid.startMs) / grid.cellMs));
+}
+
+/**
  * How far in the past the middle of cell `index` (of `count`) sits within
  * `range`'s window -- approximate ("≈"), since a cell spans a duration, not
  * an instant. Host/Assistant's charts carry no timestamps, and Host.tsx

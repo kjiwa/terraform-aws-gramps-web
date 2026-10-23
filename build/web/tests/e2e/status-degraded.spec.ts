@@ -51,12 +51,12 @@ test('a timed-out panel offers Retry, which refetches and renders the panel', as
   });
   await page.goto(`${baseURL}/_status`);
 
-  const card = page.locator('.card', { hasText: 'Incidents' });
+  const card = page.locator('.card', { has: page.locator('h3', { hasText: /^Incidents$/ }) });
   await expect(card.locator('.err')).toContainText("Didn't load in time.");
   await card.getByRole('button', { name: 'Retry' }).click();
 
   await expect(card.locator('.err')).toHaveCount(0);
-  await expect(card.locator('.stat-row')).toHaveCount(1);
+  await expect(card.locator('.stat-row').first()).toBeVisible();
 });
 
 test('a non-timeout panel error has no Retry', async ({ page, startStatus }) => {
@@ -81,11 +81,7 @@ test('signed out with public_reliability on: public panels render with the signi
   const baseURL = await startStatus({ server: { toggles: ALL_TOGGLES_ON } });
   await page.goto(`${baseURL}/_status`);
 
-  await expect(page.locator('.card > h3')).toHaveText([
-    'Reliability',
-    'Incidents (1y)',
-    'Spot reclaims',
-  ]);
+  await expect(page.locator('.card > h3')).toHaveText(['Reliability', 'Incidents']);
   const gate = page.locator('#gate');
   await expect(gate).toBeVisible();
   await expect(gate.locator('h2')).toHaveText('Please sign in');

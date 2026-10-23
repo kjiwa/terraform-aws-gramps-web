@@ -27,7 +27,7 @@ function panelsOf(document: Document): Element {
 // The Incidents card's first table: the episodes, ahead of its Changes table.
 function incidentHeaders(document: Document): (string | null)[] {
   const card = [...panelsOf(document).querySelectorAll('.card')].find(
-    (c) => c.querySelector('h3')?.textContent === 'Incidents (1y)',
+    (c) => c.querySelector('h3')?.textContent === 'Incidents',
   );
   return [...(card?.querySelector('.tbl')?.querySelectorAll('th') ?? [])].map(
     (th) => th.textContent,
