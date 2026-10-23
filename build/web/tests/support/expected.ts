@@ -9,15 +9,12 @@
 import type { Toggles } from './shell.ts';
 
 /**
- * "Data" and "Spend" only flush when backups/cost are on -- every other
- * section always has at least one card behind it (Reliability, Incidents,
- * Deployment, Host, and Storage are all required payload fields, never
- * gated by a toggle).
+ * Only "Spend" flushes conditionally (cost on) -- every other section has at
+ * least one card behind it that no toggle gates (Reliability, Incidents,
+ * Deployment, Changes, Storage, and Host are all required payload fields).
  */
 export function expectedSections(t: Toggles): string[] {
-  const sections = ['Service', 'Delivery'];
-  if (t.backups) sections.push('Data');
-  sections.push('Runtime');
+  const sections = ['Service', 'Delivery', 'Data', 'Runtime'];
   if (t.cost) sections.push('Spend');
   return sections;
 }
@@ -32,7 +29,7 @@ export function expectedSections(t: Toggles): string[] {
 export function expectedCards(t: Toggles): string[] {
   const cards = ['Reliability', 'Incidents', 'Deployment', 'Changes'];
   if (t.backups) cards.push('Backups');
-  cards.push('Host', 'Storage');
+  cards.push('Storage', 'Host');
   if (t.assistant) cards.push('Assistant');
   if (t.cost) cards.push('Cost (month to date)');
   return cards;

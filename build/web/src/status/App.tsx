@@ -164,10 +164,9 @@ export function App() {
 
   // Section order tells the page's story top to bottom: what visitors get
   // (Service), how it ships (Delivery), what it holds (Data), what it runs
-  // on (Runtime), what it costs (Spend). Data/Spend disappear entirely
-  // when their one panel is off (backups/cost are optional payload keys);
-  // Service/Delivery/Runtime always have at least one required panel, so
-  // their headings render unconditionally.
+  // on (Runtime), what it costs (Spend). Spend disappears entirely when its
+  // one panel is off (cost is an optional payload key); every other section
+  // has at least one required panel, so their headings render unconditionally.
   const { data, meta } = state;
   return (
     <RetryContext.Provider value={retry}>
@@ -192,21 +191,19 @@ export function App() {
         <Changes d={data.changes} />
       </PanelBoundary>
 
+      <Section title="Data" />
       {data.backups && (
-        <>
-          <Section title="Data" />
-          <PanelBoundary resetKey={state.data} title="Backups">
-            <Backups d={data.backups} />
-          </PanelBoundary>
-        </>
+        <PanelBoundary resetKey={state.data} title="Backups">
+          <Backups d={data.backups} />
+        </PanelBoundary>
       )}
+      <PanelBoundary resetKey={state.data} title="Storage">
+        <Storage d={data.storage} m={data.host_metrics} canPan />
+      </PanelBoundary>
 
       <Section title="Runtime" />
       <PanelBoundary resetKey={state.data} title="Host">
         <Host d={data.host} m={data.host_metrics} canPan />
-      </PanelBoundary>
-      <PanelBoundary resetKey={state.data} title="Storage">
-        <Storage d={data.storage} m={data.host_metrics} canPan />
       </PanelBoundary>
       {data.assistant && (
         <PanelBoundary resetKey={state.data} title="Assistant">
