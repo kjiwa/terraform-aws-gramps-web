@@ -1,13 +1,13 @@
 /**
- * The pure computations behind the Spot panel and the events lane: week
+ * The pure computations behind the Spot panel and the strip readout: week
  * bucketing, medians and percentiles, the absorbed rule, pool grouping, the
- * recovery split, the lane's time axis. No DOM; edges named in each title.
+ * recovery split, the strip's time axis. No DOM; edges named in each title.
  */
 import { describe, expect, it } from 'vitest';
 import type { Change, Episode, Interruption } from '../../src/generated/status-payload.d.ts';
 import { labelPlacement, niceTicks } from '../../src/status/charts/BarChart.tsx';
 import { causeClass, isDeliberateDeploy, triggerLabel } from '../../src/status/causes.ts';
-import { laneEvents, lanePercent, laneSpan, laneWindow } from '../../src/status/events.ts';
+import { cellIncidents, incidentsText, stripWindow } from '../../src/status/events.ts';
 import {
   hasSpotActivity,
   median,
@@ -293,7 +293,7 @@ describe('cause classes', () => {
   });
 });
 
-describe('events lane', () => {
+describe('strip incidents', () => {
   const cell = (label: string) => ({
     label,
     avg: 1,
@@ -303,90 +303,47 @@ describe('events lane', () => {
   });
 
   it('reads the window start from each of the three cell label formats', () => {
-    expect(laneWindow([cell('2026-06-15 14:00')], 3600)).toEqual({
+    expect(stripWindow([cell('2026-06-15 14:00')], 3600)).toEqual({
       startMs: Date.parse('2026-06-15T14:00:00Z'),
-      endMs: Date.parse('2026-06-15T15:00:00Z'),
+      cellMs: 3600_000,
     });
-    expect(laneWindow([cell('2026-06-15'), cell('2026-06-16')], 86400)?.endMs).toBe(
-      Date.parse('2026-06-17T00:00:00Z'),
+    expect(stripWindow([cell('2026-06-15'), cell('2026-06-16')], 86400)?.startMs).toBe(
+      Date.parse('2026-06-15T00:00:00Z'),
     );
-    expect(laneWindow([cell('2026-07-13 – 2026-07-19')], 604800)?.startMs).toBe(
+    expect(stripWindow([cell('2026-07-13 – 2026-07-19')], 604800)?.startMs).toBe(
       Date.parse('2026-07-13T00:00:00Z'),
     );
   });
 
   it('has no window for an unparseable label or no cells', () => {
-    expect(laneWindow([cell('week of')], 3600)).toBeNull();
-    expect(laneWindow([], 3600)).toBeNull();
+    expect(stripWindow([cell('week of')], 3600)).toBeNull();
+    expect(stripWindow([], 3600)).toBeNull();
   });
 
-  const window = { startMs: NOW - DAY, endMs: NOW };
-  const change = (
-    atMs: number,
-    creator: string | null,
-    kind: Change['kind'] = 'deploy',
-  ): Change => ({
-    at: iso(atMs),
-    kind,
-    id: 'x',
-    creator,
-    outcome: 'succeeded',
-    duration_s: 10,
-    description: null,
-    outage: false,
+  const window = { startMs: NOW - DAY, cellMs: 3600_000 };
+
+  it('picks the episodes overlapping one cell, including one that began earlier', () => {
+    const cellStart = window.startMs + 5 * 3600_000;
+    const inside = reclaim(cellStart + 600_000);
+    const earlier = reclaim(cellStart - 600_000, { duration_s: 1200 });
+    const before = reclaim(cellStart - 7200_000);
+    const after = reclaim(cellStart + 3600_000);
+    expect(cellIncidents(window, 5, [inside, earlier, before, after])).toEqual([inside, earlier]);
   });
 
-  it('keeps episodes and deliberate deploys inside the window, in time order', () => {
-    const events = laneEvents(
-      window,
-      [reclaim(NOW - 3600_000), reclaim(NOW - 2 * DAY), reclaim(NOW)],
-      [
-        change(NOW - 7200_000, 'user'),
-        change(NOW - 1800_000, 'autoscaling'),
-        change(NOW - 900_000, null, 'instance-refresh'),
-      ],
+  it('treats a cell as half-open: an episode ending exactly at its start counts, one starting at its end does not', () => {
+    const cellStart = window.startMs + 3600_000;
+    expect(cellIncidents(window, 1, [reclaim(cellStart - 300_000)])).toHaveLength(1);
+    expect(cellIncidents(window, 1, [reclaim(cellStart + 3600_000)])).toHaveLength(0);
+  });
+
+  it('names incidents by cause and duration, capped with a remainder', () => {
+    expect(incidentsText([])).toBe('');
+    expect(incidentsText([reclaim(NOW)])).toBe('1 incident: spot-reclaim 5m 0s');
+    const causes = ['deploy', 'rightsize', 'backup', 'unknown', 'deploy'] as const;
+    expect(incidentsText(causes.map((cause, i) => reclaim(NOW + i, { cause })))).toBe(
+      '5 incidents: deploy 5m 0s, rightsize 5m 0s, backup 5m 0s, +2 more',
     );
-    expect(events.map((e) => e.kind)).toEqual(['deploy', 'episode']);
-    expect(events[0]?.at).toBe(iso(NOW - 7200_000));
-  });
-
-  it('keeps an episode that began before the window or runs past its end, drops one entirely outside', () => {
-    const events = laneEvents(
-      window,
-      [
-        reclaim(window.startMs - 600_000, { duration_s: 1200 }),
-        reclaim(window.endMs - 60_000, { duration_s: 3600 }),
-        reclaim(window.startMs - 2 * DAY, { duration_s: 300 }),
-        reclaim(window.endMs + 60_000, { duration_s: 300 }),
-      ],
-      [],
-    );
-    expect(events).toHaveLength(2);
-  });
-
-  it('treats the window edges as inside: an episode ending exactly at the start counts, one starting exactly at the end does not', () => {
-    const atStart = reclaim(window.startMs - 300_000, { duration_s: 300 });
-    const atEnd = reclaim(window.endMs, { duration_s: 300 });
-    expect(laneEvents(window, [atStart], [])).toHaveLength(1);
-    expect(laneEvents(window, [atEnd], [])).toHaveLength(0);
-  });
-
-  it('clamps a mark to the lane', () => {
-    const early = laneSpan(window, iso(window.startMs - DAY / 4), DAY / 2000);
-    expect(early.left).toBe(0);
-    expect(early.width).toBeCloseTo(25);
-    const late = laneSpan(window, iso(window.endMs - DAY / 10), DAY / 1000);
-    expect(late.left).toBeCloseTo(90);
-    expect(late.width).toBeCloseTo(10);
-    expect(late.left + late.width).toBeLessThanOrEqual(100.0001);
-  });
-
-  it('is empty for an empty window, so the lane renders nothing', () => {
-    expect(laneEvents(window, [], [])).toEqual([]);
-  });
-
-  it('places an instant as a percentage of the window', () => {
-    expect(lanePercent(window, iso(NOW - DAY / 2))).toBe(50);
   });
 });
 

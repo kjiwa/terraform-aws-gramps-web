@@ -147,11 +147,7 @@ export function App() {
     return (
       <RetryContext.Provider value={retry}>
         <PanelBoundary resetKey={state.data} title="Reliability">
-          <Reliability
-            d={state.data.reliability}
-            episodes={state.data.incidents}
-            changes={state.data.changes}
-          />
+          <Reliability d={state.data.reliability} episodes={state.data.incidents} />
         </PanelBoundary>
         <PanelBoundary resetKey={state.data} title="Incidents (1y)">
           <Incidents d={state.data.incidents} changes={state.data.changes} />
@@ -178,7 +174,7 @@ export function App() {
     <RetryContext.Provider value={retry}>
       <Section title="Service" />
       <PanelBoundary resetKey={state.data} title="Reliability">
-        <Reliability d={data.reliability} episodes={data.incidents} changes={data.changes} canPan />
+        <Reliability d={data.reliability} episodes={data.incidents} canPan />
       </PanelBoundary>
       <PanelBoundary resetKey={state.data} title="Incidents (1y)">
         <Incidents d={data.incidents} changes={data.changes} />

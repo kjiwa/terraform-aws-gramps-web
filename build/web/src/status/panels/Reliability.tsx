@@ -1,6 +1,5 @@
 import { useState } from 'preact/hooks';
 import type {
-  Change,
   Episode,
   PanelError,
   Reliability as ReliabilityData,
@@ -9,13 +8,11 @@ import type {
 } from '../../generated/status-payload';
 import { fmtDuration, fmtPct, fmtThreshold } from '../../shared/format';
 import { LineChart } from '../charts/LineChart';
-import { describeEvent, laneEvents, laneWindow } from '../events';
+import { cellIncidents, incidentsText, stripWindow } from '../events';
 import { useInspector, useResettableIndex } from '../inspect';
 import { availableRanges, defaultSelected, RANGE_ORDER, type RangeKey } from '../ranges';
 import { useSeries } from '../series';
 import { Card, ErrNote } from '../ui/Card';
-import { EventsLane } from '../ui/EventsLane';
-import { EventsLegend } from '../ui/EventsLegend';
 import { Inspector } from '../ui/Inspector';
 import { LegendPair } from '../ui/LegendPair';
 import { RangeSelector } from '../ui/RangeSelector';
@@ -121,12 +118,10 @@ function latencyValueText(p50: number | null | undefined, p90: number | null | u
 export function Reliability({
   d,
   episodes,
-  changes,
   canPan,
 }: {
   d: ReliabilityData | PanelError | undefined;
   episodes?: Episode[] | PanelError;
-  changes?: Change[] | PanelError;
   canPan?: boolean;
 }) {
   const [counting, setCounting] = useState<'all' | 'unplanned'>('all');
@@ -155,7 +150,6 @@ export function Reliability({
   // range switch or a pan for the latency chart.
   const stripInspector = useInspector(cellCount, `${selected}:${end}`);
   const [latencyIndex, setLatencyIndex] = useResettableIndex(`${selected}:${end}`);
-  const [laneIndex, setLaneIndex] = useResettableIndex(`${selected}:${end}`);
 
   if (!d) return null;
   if ('error' in d) {
@@ -211,20 +205,13 @@ export function Reliability({
   const restingStripIndex = cellCount > 0 ? cellCount - 1 : -1;
   const stripIndex = stripInspector.index ?? restingStripIndex;
   const stripCell = r && stripIndex >= 0 ? r.cells[stripIndex] : undefined;
-  const lane = r ? laneWindow(r.cells, r.cell_s) : null;
-  const events = lane
-    ? laneEvents(
-        lane,
-        Array.isArray(episodes) ? episodes : [],
-        Array.isArray(changes) ? changes : [],
-      )
-    : [];
-  const laneEvent = laneIndex === null ? undefined : events[laneIndex];
-  const readout = laneEvent
-    ? describeEvent(laneEvent)
-    : stripCell && r
-      ? cellDetail(stripCell, r)
+  const window = r ? stripWindow(r.cells, r.cell_s) : null;
+  const named =
+    window && stripIndex >= 0 && Array.isArray(episodes)
+      ? incidentsText(cellIncidents(window, stripIndex, episodes))
       : '';
+  const readout =
+    stripCell && r ? [cellDetail(stripCell, r), named].filter(Boolean).join(' · ') : '';
 
   return (
     <Card title="Reliability">
@@ -263,7 +250,7 @@ export function Reliability({
             aria-valuemin={0}
             aria-valuemax={Math.max(0, cellCount - 1)}
             aria-valuenow={Math.max(0, stripIndex)}
-            aria-valuetext={stripCell && r ? cellDetail(stripCell, r) : ''}
+            aria-valuetext={readout}
             aria-label={r ? stripSummary(r.cells, good, warn) : undefined}
             onPointerMove={stripInspector.onPointerMove}
             onPointerDown={stripInspector.onPointerDown}
@@ -274,9 +261,6 @@ export function Reliability({
               <div key={i} aria-hidden="true" class={cellClass(cell, good, warn)} />
             ))}
           </div>
-          {lane && (
-            <EventsLane window={lane} events={events} index={laneIndex} onIndex={setLaneIndex} />
-          )}
           {stripCell && r && <Inspector cls="strip-key">{readout}</Inspector>}
           {/* Built once, not per-range: the legend states percentage
               thresholds, which don't depend on a range's cell width. */}
@@ -290,7 +274,6 @@ export function Reliability({
               <LegendPair cls="c-gray" label="no data" />
               <LegendPair cls="c-partial" label="in progress" />
             </span>
-            <EventsLegend events={events} />
           </p>
           {hasLatency && r && (
             <>

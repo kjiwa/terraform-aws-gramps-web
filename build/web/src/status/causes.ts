@@ -1,8 +1,7 @@
 import type { Change, Episode } from '../generated/status-payload';
 
 /**
- * The one cause -> class -> color mapping: the Spot panel, the reliability
- * events lane, and its legend all read it. Spot reclaims are their own class
+ * The one cause -> class -> color mapping the Incidents chart and its legend read. Spot reclaims are their own class
  * because they are the panel's subject; every other cause follows the
  * episode's own `planned` flag, which both payload routes carry.
  */

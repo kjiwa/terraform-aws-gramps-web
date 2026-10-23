@@ -20,8 +20,8 @@
      adjacent pair, used in fixed
      order across every two-series chart on this page (p50/p90, CPU/mem)
      so a color always names the same series everywhere it appears.
-     --gw-chart-3 is the palette's third slot, added for the events lane's
-     third cause class and the recovery split's second segment; slots 1-3
+     --gw-chart-3 is the palette's third slot, added for the third cause
+     class and the recovery split's second segment; slots 1-3
      validate together all-pairs in both modes. --gw-chart-2-tint is a
      lighter step of --gw-chart-2 for the recovery split.
      --gw-chart-track is the unfilled portion of a meter bar: a low-alpha
@@ -332,7 +332,6 @@ details > summary:focus-visible,
 a:focus-visible,
 .btn:focus-visible,
 .strip:focus-visible,
-.lane:focus-visible,
 .chart-scrub:focus-visible,
 .window-nav button:focus-visible,
 .btn-retry:focus-visible {
@@ -450,10 +449,6 @@ a:focus-visible,
    (--gw-chart-2), since it decomposes a Spot-reclaim outage. */
 .c-chart2-tint {
   background: var(--gw-chart-2-tint);
-}
-/* The events lane's deploy tick is neutral ink, not a series color. */
-.c-ink {
-  background: var(--gw-on-surface);
 }
 dl.kv {
   display: grid;
@@ -700,8 +695,8 @@ details > .table-scroll {
   font-size: var(--gw-text-sm);
   margin-top: var(--gw-space-2);
 }
-/* The strip readout also shows lane marks' text; two lines reserved on a
-   phone so hovering across cells and marks never moves the card. */
+/* The strip readout also names the cell's incidents; two lines reserved on a
+   phone so hovering across cells never moves the card. */
 @media (max-width: 40rem) {
   .strip-key {
     min-height: calc(2 * 1.2em);
@@ -745,46 +740,6 @@ details > .table-scroll {
 }
 .tip-row span:not(.swatch) {
   color: var(--gw-muted);
-}
-/* The events legend holds up to five items, more than a 320px card fits on one line. */
-.legend-group.wrapping {
-  flex-wrap: wrap;
-}
-.legend-group > .legend-lead {
-  font-weight: 600;
-}
-/* Events on the reliability strip's own time axis (ui/EventsLane.tsx). The
-   ::before widens each mark's hover target past its few painted pixels. */
-.lane {
-  position: relative;
-  height: 0.9rem;
-  margin-top: var(--gw-space-1);
-  touch-action: pan-y;
-}
-.lane-mark {
-  position: absolute;
-  top: 0;
-  height: 100%;
-}
-.lane-mark::before {
-  content: '';
-  position: absolute;
-  inset: calc(-1 * var(--gw-space-1)) calc(-1 * var(--gw-space-2));
-}
-.lane-episode {
-  min-width: 4px;
-  border-radius: 2px;
-}
-.lane-deploy {
-  top: -2px;
-  height: calc(100% + 4px);
-  width: 2px;
-  margin-left: -1px;
-  background: var(--gw-on-surface);
-}
-.lane-mark.active {
-  outline: 1px solid var(--gw-on-surface);
-  outline-offset: 1px;
 }
 /* The recovery split: one 100% bar, two segments with a 2px surface gap
    and a rounded outer end on each side. */

@@ -1,5 +1,5 @@
 /**
- * The Spot reclaims panel, the reliability events lane, and the Changes
+ * The Spot reclaims panel and the Changes
  * table, mounted in jsdom: presence rules, the client-side range toggle, the
  * operator-only views, and what the public route does and does not show.
  * jsdom has no layout, so the bar chart's SVG is covered by Playwright
@@ -175,32 +175,12 @@ describe('Spot panel contents', () => {
   });
 });
 
-describe('events lane', () => {
-  it('marks the window on the strip axis, with a legend naming only what is shown', async () => {
+describe('events lane removal', () => {
+  it('renders no events lane or events legend', async () => {
     const m = await mountOperator();
     const rel = card(m, 'Reliability');
-    const lane = rel?.querySelector('.lane');
-    expect(lane).not.toBeNull();
-    expect(lane?.querySelectorAll('.lane-episode').length).toBeGreaterThan(0);
-    expect(lane?.querySelectorAll('.lane-deploy').length).toBeGreaterThan(0);
-    const legend = rel?.querySelector('.legend-groups')?.textContent ?? '';
-    expect(legend).toContain('Events');
-    expect(legend).toContain('Spot reclaim');
-    expect(legend).toContain('Deploy');
-  });
-
-  it('renders nothing, not an empty box, when the window holds no events', async () => {
-    const data = payloadFor(ALL_TOGGLES_ON);
-    data.incidents = [];
-    data.changes = [];
-    const rel = card(await mountOperator(data), 'Reliability');
     expect(rel?.querySelector('.lane')).toBeNull();
     expect(rel?.querySelector('.legend-groups')?.textContent).not.toContain('Events');
-  });
-
-  it('draws on the public route too, with deliberate deploys only', async () => {
-    const lane = card(await mountPublic(), 'Reliability')?.querySelector('.lane');
-    expect(lane?.querySelectorAll('.lane-deploy').length).toBeGreaterThan(0);
   });
 });
 

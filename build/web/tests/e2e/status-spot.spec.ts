@@ -118,28 +118,26 @@ test('the public Changes table lists deliberate changes only', async ({ page, st
   await expect(triggers.filter({ hasText: 'rollback' })).toHaveCount(1);
 });
 
-test('lane marks drive the strip readout, with no tooltip and no layout jump', async ({
+test('the strip readout names the incidents of the hovered cell, with no layout jump', async ({
   page,
   startStatus,
 }) => {
   await openOperator(page, startStatus);
   const card = page.locator('.card', { has: page.locator('h3', { hasText: 'Reliability' }) });
+  await expect(card.locator('.lane')).toHaveCount(0);
+  const strip = card.locator('.strip');
   const readout = card.locator('.strip-key');
-  const resting = await readout.textContent();
+  const box = await strip.boundingBox();
   const before = await card.boundingBox();
+  if (!box) throw new Error('strip has no box');
 
-  await card.locator('.lane-episode').first().hover();
-  await expect(readout).not.toHaveText(resting ?? '');
-  await expect(readout).toContainText(/UTC · [a-z-]+ · .* down/);
-  await expect(card.locator('.tip')).toHaveCount(0);
-  expect((await card.boundingBox())?.height).toBe(before?.height);
-
-  await page.mouse.move(0, 0);
-  await expect(readout).toHaveText(resting ?? '');
-
-  await card.locator('.lane').focus();
-  await page.keyboard.press('Home');
-  await expect(readout).toContainText('UTC');
-  await expect(readout).not.toHaveText(resting ?? '');
+  const cells = await strip.locator('> div').count();
+  let named = false;
+  for (let i = 0; i < cells && !named; i++) {
+    await page.mouse.move(box.x + ((i + 0.5) / cells) * box.width, box.y + box.height / 2);
+    named = /\d+ incidents?: /.test((await readout.textContent()) ?? '');
+  }
+  expect(named).toBe(true);
+  expect(await card.locator('.tip').count()).toBe(0);
   expect((await card.boundingBox())?.height).toBe(before?.height);
 });
