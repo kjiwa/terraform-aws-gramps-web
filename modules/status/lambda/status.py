@@ -63,8 +63,10 @@ Container image block. This Lambda never touches tree data.
 import collections
 import concurrent.futures
 import datetime
+import functools
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -232,6 +234,16 @@ CHART_RANGES = {
     "90d": {"period_s": 86400, "cells": 90},
     "1y": {"period_s": 86400, "cells": 365},
 }
+
+# One Logs Insights query returns at most this many rows; a result that size
+# may be cut off, so LogRead refuses it rather than serve a partial history.
+INSIGHTS_ROW_LIMIT = 10000
+INSIGHTS_QUERY = f"fields @timestamp, @logStream, @message | limit {INSIGHTS_ROW_LIMIT}"
+INSIGHTS_POLL_S = 0.25
+# Budget for a read whose caller supplied no request deadline (/_status/series):
+# leaves room inside main.tf's Lambda timeout for auth (AUTH_TIMEOUT_S) and the
+# metric reads that follow.
+INSIGHTS_DEFAULT_WAIT_S = 10
 
 # Matches RANGES' longest window so the incidents table is never quietly
 # missing older episodes that the 1y uptime number already reflects.
@@ -558,6 +570,21 @@ def is_error(v):
     return isinstance(v, dict) and "error" in v
 
 
+def request_deadline(context):
+    """time.monotonic() value by which a request's panel work must be done."""
+    remaining_s = context.get_remaining_time_in_millis() / 1000
+    return time.monotonic() + max(0.0, remaining_s - SERIALIZATION_RESERVE_S)
+
+
+def shared_log_reads(deadline):
+    """The request's one read per log group: (episodes group, Spot group)."""
+    now = datetime.datetime.now(datetime.UTC)
+    return (
+        LogRead(EPISODES_LOG_GROUP, now, INCIDENTS_LOOKBACK_DAYS, deadline),
+        LogRead(SPOT_INTERRUPTIONS_LOG_GROUP, now, INCIDENTS_LOOKBACK_DAYS, deadline),
+    )
+
+
 def collect_status(context):
     """Fan out every panel branch and return the results keyed by name --
     exactly the payload data_response() caches in _data_cache, with no
@@ -577,11 +604,13 @@ def collect_status(context):
     it) and reported as {"error": "timed out"}, the same shape safe_section's
     own except branch produces, so the frontend needs no separate handling.
     """
+    deadline = request_deadline(context)
+    episode_log, spot_log = shared_log_reads(deadline)
     branches = [
-        ("reliability", reliability),
-        ("incidents", incidents),
-        ("changes", changes),
-        ("interruptions", interruptions),
+        ("reliability", functools.partial(reliability, episode_log=episode_log)),
+        ("incidents", functools.partial(incidents, episode_log=episode_log)),
+        ("changes", functools.partial(changes, episode_log=episode_log)),
+        ("interruptions", functools.partial(interruptions, spot_log=spot_log)),
         ("host_image_storage", host_image_storage),
         ("deployment", deployment),
     ]
@@ -597,10 +626,9 @@ def collect_status(context):
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
     try:
         futures = {name: pool.submit(safe_section, name, fn) for name, fn in branches}
-        deadline_s = max(
-            0.0, context.get_remaining_time_in_millis() / 1000 - SERIALIZATION_RESERVE_S
+        done, _ = concurrent.futures.wait(
+            futures.values(), timeout=max(0.0, deadline - time.monotonic())
         )
-        done, _ = concurrent.futures.wait(futures.values(), timeout=deadline_s)
         results = {
             name: (future.result() if future in done else {"error": "timed out"})
             for name, future in futures.items()
@@ -648,17 +676,17 @@ def public_response(context):
     # Same deadline-bounded pattern as collect_status(), and for the same
     # reason: these are unauthenticated AWS calls with no caller to blame a
     # hang on.
-    sections = public_sections()
+    deadline = request_deadline(context)
+    sections = public_sections(*shared_log_reads(deadline))
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(sections))
     try:
         futures = {
             name: pool.submit(safe_section, name, fn)
             for name, (fn, _) in sections.items()
         }
-        deadline_s = max(
-            0.0, context.get_remaining_time_in_millis() / 1000 - SERIALIZATION_RESERVE_S
+        done, _ = concurrent.futures.wait(
+            futures.values(), timeout=max(0.0, deadline - time.monotonic())
         )
-        done, _ = concurrent.futures.wait(futures.values(), timeout=deadline_s)
         results = {
             name: future.result() if future in done else {"error": "timed out"}
             for name, future in futures.items()
@@ -705,21 +733,27 @@ def keep_fields(*fields):
     return lambda items: [{f: item.get(f) for f in fields} for item in items]
 
 
-def public_sections():
+def public_sections(episode_log, spot_log):
     """name -> (producer, redaction), in payload order."""
     return {
-        "reliability": (reliability, lambda value: value),
+        "reliability": (
+            functools.partial(reliability, episode_log=episode_log),
+            lambda value: value,
+        ),
         "incidents": (
-            incidents,
+            functools.partial(incidents, episode_log=episode_log),
             keep_fields("started", "duration_s", "cause", "planned"),
         ),
         "changes": (
-            changes,
+            functools.partial(changes, episode_log=episode_log),
             lambda items: keep_fields("at", "kind", "creator", "outcome")(
                 [c for c in items if is_deliberate_change(c)]
             ),
         ),
-        "interruptions": (interruptions, keep_fields("time")),
+        "interruptions": (
+            functools.partial(interruptions, spot_log=spot_log),
+            keep_fields("time"),
+        ),
     }
 
 
@@ -756,7 +790,7 @@ def bucket_series(timestamps, values, strip_start, period_td, count):
     return series
 
 
-def reliability(now=None, keys=None):
+def reliability(now=None, keys=None, episode_log=None):
     """now/keys: /_status/series' hooks for panning a single range to a past
     `end` instead of the live edge (see the module docstring's responsibility
     2). now=None/keys=None reproduce /_status/data's live, all-five-ranges
@@ -764,12 +798,13 @@ def reliability(now=None, keys=None):
     also bounds excl_windows' own lookback to the widest requested range's
     window_days rather than the flat INCIDENTS_LOOKBACK_DAYS, so panning a
     24h window doesn't pull a year of episodes/CodeDeploy history to exclude
-    minutes it isn't even querying.
+    minutes it isn't even querying. episode_log: the request's shared
+    episodes-group read (see LogRead); None reads its own.
     """
     now = now or datetime.datetime.now(datetime.UTC)
     keys = keys or list(RANGES)
     excl_days = max(RANGES[k]["window_days"] for k in keys)
-    excl_windows = planned_windows(days=excl_days, now=now)
+    excl_windows = planned_windows(days=excl_days, now=now, episode_log=episode_log)
 
     # Queries are deduplicated by (period_s, query_days): 30d/90d/1y all name
     # the same pair in RANGES and so share the one GetMetricData call below
@@ -930,7 +965,7 @@ def excluded_overlap_s(window_start, window_end, exclude_windows):
     return total
 
 
-def planned_windows(days=INCIDENTS_LOOKBACK_DAYS, now=None):
+def planned_windows(days=INCIDENTS_LOOKBACK_DAYS, now=None, episode_log=None):
     """[(started, ended), ...] to exclude from uptime_excl_planned, from two
     sources: every planned=true episode in the lookback window (a deploy long
     enough to trip the site_down alarm), plus every CodeDeploy deployment's
@@ -948,10 +983,10 @@ def planned_windows(days=INCIDENTS_LOOKBACK_DAYS, now=None):
     anchored to the live edge.
     """
     now = now or datetime.datetime.now(datetime.UTC)
-    return episode_windows(days, now) + codedeploy_windows(days, now)
+    return episode_windows(days, now, episode_log) + codedeploy_windows(days, now)
 
 
-def episode_windows(days, now=None):
+def episode_windows(days, now=None, episode_log=None):
     """The episode half of planned_windows() -- see its docstring. Reuses
     incidents() rather than re-deriving episode windows some other way: the
     episode already carries the answer (`planned`, set by availability.py).
@@ -960,7 +995,7 @@ def episode_windows(days, now=None):
     not break the raw uptime numbers this function has always returned.
     """
     try:
-        episodes = incidents(days, now)
+        episodes = incidents(days, now, episode_log)
     except Exception as e:
         print(json.dumps({"planned_windows_failed": f"{type(e).__name__}: {e}"}))
         return []
@@ -1283,34 +1318,84 @@ def reliability_window(start, end, period):
 # --- incidents ------------------------------------------------------------------
 
 
-def log_records(group, now, days, stream=None):
-    """[(log timestamp ms, parsed JSON message), ...] from `group` (one named
-    stream, or all of them), unparseable lines skipped. The window is the log
+class LogRead:
+    """One Logs Insights read of `group` over the last `days`, shared by every
+    section of a request that draws on it: the first records() call runs the
+    query, the rest reuse the rows (or the failure). The window is the log
     event timestamp, which is only a coarse bound: a backfilled record keeps
     its own old time but is logged at write time, so callers that care about a
-    record's time read the record's own field.
+    record's time read the record's own field. deadline: time.monotonic()
+    value to stop waiting at; None allows INSIGHTS_DEFAULT_WAIT_S.
     """
-    kwargs = {
-        "logGroupName": group,
-        "startTime": int((now - datetime.timedelta(days=days)).timestamp() * 1000),
-        "endTime": int(now.timestamp() * 1000),
-    }
-    if stream:
-        kwargs["logStreamNames"] = [stream]
-    records = []
-    while True:
-        r = logs.filter_log_events(**kwargs)
-        for e in r.get("events", []):
-            try:
-                record = json.loads(e["message"])
-            except ValueError:
-                continue
-            if isinstance(record, dict):
-                records.append((e.get("timestamp", 0), record))
-        token = r.get("nextToken")
-        if not token:
-            return records
-        kwargs["nextToken"] = token
+
+    def __init__(self, group, now, days, deadline=None):
+        self.group = group
+        self.start = now - datetime.timedelta(days=days)
+        self.end = now
+        self.deadline = deadline
+        self._lock = threading.Lock()
+        self._rows = None
+        self._error = None
+
+    def records(self, stream=None):
+        """[(log timestamp ms, parsed JSON message), ...] from one named
+        stream, or all of them; unparseable lines skipped.
+        """
+        with self._lock:
+            if self._rows is None and self._error is None:
+                try:
+                    self._rows = self._read()
+                except Exception as e:
+                    self._error = e
+        if self._error is not None:
+            raise self._error
+        return [(ts, rec) for ts, name, rec in self._rows if stream in (None, name)]
+
+    def _read(self):
+        deadline = self.deadline
+        if deadline is None:
+            deadline = time.monotonic() + INSIGHTS_DEFAULT_WAIT_S
+        rows = self._query(deadline)
+        if len(rows) >= INSIGHTS_ROW_LIMIT:
+            raise RuntimeError(
+                f"{self.group}: query reached the {INSIGHTS_ROW_LIMIT} row limit"
+            )
+        return [row for row in map(parse_log_row, rows) if row is not None]
+
+    def _query(self, deadline):
+        query_id = logs.start_query(
+            logGroupName=self.group,
+            startTime=int(self.start.timestamp()),
+            endTime=int(self.end.timestamp()),
+            queryString=INSIGHTS_QUERY,
+            limit=INSIGHTS_ROW_LIMIT,
+        )["queryId"]
+        while True:
+            r = logs.get_query_results(queryId=query_id)
+            state = r.get("status")
+            if state == "Complete":
+                return r.get("results", [])
+            if state not in ("Scheduled", "Running"):
+                raise RuntimeError(f"{self.group}: query {state}")
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"{self.group}: query not complete in time")
+            time.sleep(INSIGHTS_POLL_S)
+
+
+def parse_log_row(row):
+    """(timestamp ms, stream, record) from one Insights result row, or None
+    when the message is not a JSON object.
+    """
+    fields = {f["field"]: f["value"] for f in row}
+    try:
+        record = json.loads(fields["@message"])
+        stamp = datetime.datetime.fromisoformat(fields["@timestamp"])
+    except (KeyError, ValueError):
+        return None
+    if not isinstance(record, dict):
+        return None
+    ms = round(stamp.replace(tzinfo=datetime.UTC).timestamp() * 1000)
+    return ms, fields.get("@logStream"), record
 
 
 def latest_per(records, key):
@@ -1329,13 +1414,13 @@ def latest_per(records, key):
     return list(newest.values()) + keyless
 
 
-def incidents(days=INCIDENTS_LOOKBACK_DAYS, now=None):
+def incidents(days=INCIDENTS_LOOKBACK_DAYS, now=None, episode_log=None):
     now = now or datetime.datetime.now(datetime.UTC)
+    episode_log = episode_log or LogRead(EPISODES_LOG_GROUP, now, days)
     # The producer (monitoring/lambda.tf's aws_cloudwatch_log_stream.episodes)
-    # writes every episode to this one named stream; narrowing to it turns
-    # this from a whole-log-group scan into a single-stream lookup. See
-    # main.tf's episodes_log_stream local for the shared literal.
-    records = log_records(EPISODES_LOG_GROUP, now, days, EPISODES_LOG_STREAM)
+    # writes every episode to this one named stream. See main.tf's
+    # episodes_log_stream local for the shared literal.
+    records = episode_log.records(EPISODES_LOG_STREAM)
     episodes = latest_per(records, lambda ep: ep.get("started"))
     for ep in episodes:
         ep.setdefault("planned", False)  # pre-`planned` records were unplanned
@@ -1343,7 +1428,7 @@ def incidents(days=INCIDENTS_LOOKBACK_DAYS, now=None):
     return episodes
 
 
-def changes(days=INCIDENTS_LOOKBACK_DAYS, now=None):
+def changes(days=INCIDENTS_LOOKBACK_DAYS, now=None, episode_log=None):
     """Deployments and instance refreshes recorded by the availability Lambda,
     newest first, one per id, each with `outage`: whether an episode of the
     change's own cause overlaps it (see change_caused_outage()). Windowed on
@@ -1351,10 +1436,11 @@ def changes(days=INCIDENTS_LOOKBACK_DAYS, now=None):
     """
     now = now or datetime.datetime.now(datetime.UTC)
     cutoff = iso(now - datetime.timedelta(days=days))
-    records = log_records(EPISODES_LOG_GROUP, now, days, CHANGES_LOG_STREAM)
+    episode_log = episode_log or LogRead(EPISODES_LOG_GROUP, now, days)
+    records = episode_log.records(CHANGES_LOG_STREAM)
     complete = [(ts, c) for ts, c in records if c.get("id") and c.get("at")]
     recorded = [c for c in latest_per(complete, lambda c: c["id"]) if c["at"] >= cutoff]
-    episodes = incidents(days, now)
+    episodes = incidents(days, now, episode_log)
     for c in recorded:
         c["outage"] = change_caused_outage(c, episodes)
     recorded.sort(key=lambda c: c["at"], reverse=True)
@@ -1390,16 +1476,17 @@ def is_deliberate_change(change):
     return change.get("kind") != "deploy" or is_deliberate_deploy(change)
 
 
-def interruptions(days=INCIDENTS_LOOKBACK_DAYS, now=None):
+def interruptions(days=INCIDENTS_LOOKBACK_DAYS, now=None, spot_log=None):
     """Spot interruption warnings, newest first, from the EventBridge log."""
     now = now or datetime.datetime.now(datetime.UTC)
+    spot_log = spot_log or LogRead(SPOT_INTERRUPTIONS_LOG_GROUP, now, days)
     warnings = [
         {
             "time": event["time"],
             "instance_id": event["detail"]["instance-id"],
             "action": event["detail"].get("instance-action"),
         }
-        for _, event in log_records(SPOT_INTERRUPTIONS_LOG_GROUP, now, days)
+        for _, event in spot_log.records()
         if event.get("time")
         and isinstance(event.get("detail"), dict)
         and event["detail"].get("instance-id")

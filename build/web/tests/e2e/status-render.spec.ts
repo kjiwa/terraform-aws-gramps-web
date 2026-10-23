@@ -28,7 +28,7 @@ const COMBOS: { name: string; toggles: Toggles }[] = [
 ];
 
 // One SVG per chart that actually has data to draw: the Reliability latency
-// chart and the Spot weekly bar chart always (the fixture holds reclaims), plus Host's
+// chart and the Incidents bar chart always (the fixture holds incidents), plus Host's
 // CPU/memory chart and Storage's disk-used chart when host_metrics is on
 // (the checked-in fixture's host_metrics carries the byte path, so Storage
 // always has a chart to draw whenever the panel is on at all -- see

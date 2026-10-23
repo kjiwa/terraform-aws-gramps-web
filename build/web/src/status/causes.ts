@@ -1,8 +1,7 @@
 import type { Change, Episode } from '../generated/status-payload';
 
 /**
- * The one cause -> class -> color mapping: the Spot panel, the reliability
- * events lane, and its legend all read it. Spot reclaims are their own class
+ * The one cause -> class -> color mapping the Incidents chart and its legend read. Spot reclaims are their own class
  * because they are the panel's subject; every other cause follows the
  * episode's own `planned` flag, which both payload routes carry.
  */
@@ -20,11 +19,13 @@ export function causeClass(ep: Pick<Episode, 'cause' | 'planned'>): CauseClass {
   return ep.planned ? 'planned' : 'unplanned';
 }
 
-/** Mirrors DELIBERATE_DEPLOYMENT_CREATORS in lambda/status.py: a person or a CodeDeploy rollback, not an Auto Scaling launch. */
-export const DELIBERATE_CREATORS = ['user', 'codeDeployRollback'];
+/** Mirrors DELIBERATE_DEPLOYMENT_CREATORS in lambda/status.py. */
+const DELIBERATE_CREATORS = ['user', 'codeDeployRollback'];
 
-export function isDeliberateDeploy(c: Pick<Change, 'kind' | 'creator'>): boolean {
-  return c.kind === 'deploy' && c.creator !== null && DELIBERATE_CREATORS.includes(c.creator);
+/** A person's deploy, a rollback, or an instance refresh; not an Auto Scaling launch. */
+export function isDeliberateChange(c: Pick<Change, 'kind' | 'creator'>): boolean {
+  if (c.kind === 'instance-refresh') return true;
+  return c.creator !== null && DELIBERATE_CREATORS.includes(c.creator);
 }
 
 const TRIGGER_LABELS: Record<string, string> = {

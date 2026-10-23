@@ -749,12 +749,7 @@ class ReliabilityDecimalsTests(unittest.TestCase):
                 side_effect=fake_get_metric_data,
                 create=True,
             ),
-            mock.patch.object(
-                status.logs,
-                "filter_log_events",
-                return_value={"events": []},
-                create=True,
-            ),
+            FakeLogs().patch(),
         ):
             result = status.reliability()
 
@@ -1311,7 +1306,7 @@ class ReliabilityNowKeysTests(unittest.TestCase):
 
         # RANGES["24h"]["window_days"] == 1 -- not the flat
         # INCIDENTS_LOOKBACK_DAYS (365) a live, all-five-ranges call uses.
-        mock_planned.assert_called_once_with(days=1, now=x)
+        mock_planned.assert_called_once_with(days=1, now=x, episode_log=None)
 
 
 class ImageSourceAmiFallbackTests(unittest.TestCase):
@@ -1925,13 +1920,8 @@ class EpisodeWindowsTests(unittest.TestCase):
                 "planned": False,
             },
         ]
-        events_json = [{"message": json.dumps(e)} for e in events]
-        with mock.patch.object(
-            status.logs,
-            "filter_log_events",
-            return_value={"events": events_json},
-            create=True,
-        ):
+        rows = episode_rows(*enumerate(events))
+        with FakeLogs({EPISODES: rows}).patch():
             windows = status.episode_windows(1)
         self.assertEqual(
             windows, [(dt(2026, 7, 15, 10, 0, 0), dt(2026, 7, 15, 10, 4, 0))]
@@ -1940,7 +1930,7 @@ class EpisodeWindowsTests(unittest.TestCase):
     def test_degrades_to_empty_list_on_failure(self):
         with mock.patch.object(
             status.logs,
-            "filter_log_events",
+            "start_query",
             side_effect=RuntimeError("boom"),
             create=True,
         ):
@@ -1960,12 +1950,7 @@ class IncidentsPlannedDefaultTests(unittest.TestCase):
             {"started": "2026-07-17T10:00:00Z", "cause": "deploy", "planned": True},
             {"started": "2026-07-18T10:00:00Z", "cause": "backup", "planned": True},
         ]
-        with mock.patch.object(
-            status.logs,
-            "filter_log_events",
-            return_value={"events": [{"message": json.dumps(e)} for e in events]},
-            create=True,
-        ):
+        with FakeLogs({EPISODES: episode_rows(*enumerate(events))}).patch():
             got = {ep["started"][:10]: ep["planned"] for ep in status.incidents(1)}
         self.assertEqual(
             got,
@@ -1978,11 +1963,69 @@ class IncidentsPlannedDefaultTests(unittest.TestCase):
         )
 
 
-def log_events(*records):
-    """filter_log_events output: (log timestamp ms, record) pairs."""
-    return {
-        "events": [{"timestamp": ts, "message": json.dumps(rec)} for ts, rec in records]
-    }
+def insights_ts(ms):
+    return datetime.datetime.fromtimestamp(ms / 1000, UTC).strftime(
+        "%Y-%m-%d %H:%M:%S.%f"
+    )[:-3]
+
+
+class FakeLogs:
+    """Logs Insights stand-in. groups: log group -> [(timestamp ms, stream,
+    record or raw message)]. statuses: successive get_query_results statuses,
+    the last repeating.
+    """
+
+    def __init__(self, groups=None, statuses=("Complete",)):
+        self.groups = groups or {}
+        self.statuses = list(statuses)
+        self.started = []
+
+    def start_query(self, **kwargs):
+        self.started.append(kwargs)
+        return {"queryId": str(len(self.started) - 1)}
+
+    def get_query_results(self, queryId):
+        state = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
+        if state != "Complete":
+            return {"status": state, "results": []}
+        group = self.started[int(queryId)]["logGroupName"]
+        rows = [
+            [
+                {"field": "@timestamp", "value": insights_ts(ts)},
+                {"field": "@logStream", "value": stream},
+                {
+                    "field": "@message",
+                    "value": msg if isinstance(msg, str) else json.dumps(msg),
+                },
+                {"field": "@ptr", "value": "p"},
+            ]
+            for ts, stream, msg in self.groups.get(group, [])
+        ]
+        return {"status": "Complete", "results": rows}
+
+    def reads_of(self, group):
+        return sum(1 for q in self.started if q["logGroupName"] == group)
+
+    def patch(self):
+        return mock.patch.multiple(
+            status.logs,
+            create=True,
+            start_query=self.start_query,
+            get_query_results=self.get_query_results,
+        )
+
+
+EPISODES = "test-log-group"
+SPOT = "test-spot-group"
+
+
+def episode_rows(*records):
+    """(log timestamp ms, record) pairs as rows of the episodes stream."""
+    return [(ts, status.EPISODES_LOG_STREAM, rec) for ts, rec in records]
+
+
+def change_rows(*records):
+    return [(ts, status.CHANGES_LOG_STREAM, rec) for ts, rec in records]
 
 
 def episode(started, ended, cause="unknown", **extra):
@@ -2020,12 +2063,7 @@ class IncidentsDedupeTests(unittest.TestCase):
     """
 
     def read(self, *records):
-        with mock.patch.object(
-            status.logs,
-            "filter_log_events",
-            return_value=log_events(*records),
-            create=True,
-        ):
+        with FakeLogs({EPISODES: episode_rows(*records)}).patch():
             return status.incidents(365, NOW)
 
     def test_keeps_the_latest_record_per_started(self):
@@ -2054,26 +2092,16 @@ class IncidentsRobustnessTests(unittest.TestCase):
             json.dumps({"cause": "unknown", "duration_s": 1}),
             json.dumps({"cause": "deploy", "duration_s": 2}),
         ]
-        events = {
-            "events": [{"timestamp": n, "message": m} for n, m in enumerate(messages)]
-        }
-        with mock.patch.object(
-            status.logs, "filter_log_events", return_value=events, create=True
-        ):
+        rows = episode_rows(*enumerate(messages))
+        with FakeLogs({EPISODES: rows}).patch():
             got = status.incidents(365, NOW)
         self.assertEqual(sorted(e["duration_s"] for e in got), [1, 2])
 
 
 class ChangesTests(unittest.TestCase):
     def read(self, changes, episodes=()):
-        def fake(**kwargs):
-            if kwargs["logStreamNames"] == ["test-changes-stream"]:
-                return log_events(*changes)
-            return log_events(*[(NOW_MS, e) for e in episodes])
-
-        with mock.patch.object(
-            status.logs, "filter_log_events", side_effect=fake, create=True
-        ):
+        rows = change_rows(*changes) + episode_rows(*[(NOW_MS, e) for e in episodes])
+        with FakeLogs({EPISODES: rows}).patch():
             return status.changes(365, NOW)
 
     def test_keeps_the_latest_record_per_id(self):
@@ -2170,21 +2198,16 @@ class ChangesTests(unittest.TestCase):
         self.assertIs(got[0]["outage"], False)
 
     def test_malformed_lines_are_skipped(self):
-        def fake(**kwargs):
-            lines = [
-                {"timestamp": 1, "message": "not json"},
-                {"timestamp": 2, "message": "123"},
-                {"timestamp": 3, "message": '"text"'},
-                {"timestamp": 4, "message": "[1]"},
-                {"timestamp": 5, "message": json.dumps({"id": "no-at"})},
-                {"timestamp": 6, "message": json.dumps({"at": "2026-09-01T10:00:00Z"})},
-                {"timestamp": 7, "message": json.dumps(change("2026-09-01T10:00:00Z"))},
-            ]
-            return {"events": lines}
-
-        with mock.patch.object(
-            status.logs, "filter_log_events", side_effect=fake, create=True
-        ):
+        lines = [
+            (1, "not json"),
+            (2, "123"),
+            (3, '"text"'),
+            (4, "[1]"),
+            (5, json.dumps({"id": "no-at"})),
+            (6, json.dumps({"at": "2026-09-01T10:00:00Z"})),
+            (7, json.dumps(change("2026-09-01T10:00:00Z"))),
+        ]
+        with FakeLogs({EPISODES: change_rows(*lines)}).patch():
             got = status.changes(365, NOW)
         self.assertEqual([c["id"] for c in got], ["d-1"])
 
@@ -2204,12 +2227,8 @@ class InterruptionsTests(unittest.TestCase):
             json.dumps({"time": "t"}),
             json.dumps(good),
         ]
-        events = {
-            "events": [{"timestamp": n, "message": m} for n, m in enumerate(messages)]
-        }
-        with mock.patch.object(
-            status.logs, "filter_log_events", return_value=events, create=True
-        ):
+        rows = [(n, "s", m) for n, m in enumerate(messages)]
+        with FakeLogs({SPOT: rows}).patch():
             got = status.interruptions(365, NOW)
         self.assertEqual(got, [{"time": "t", "instance_id": "i-1", "action": None}])
 
@@ -2218,17 +2237,10 @@ class InterruptionsTests(unittest.TestCase):
             "time": "2026-09-01T10:00:00Z",
             "detail": {"instance-id": "i-1", "instance-action": "terminate"},
         }
-        seen = {}
-
-        def fake(**kwargs):
-            seen.update(kwargs)
-            return log_events((1, warning))
-
-        with mock.patch.object(
-            status.logs, "filter_log_events", side_effect=fake, create=True
-        ):
+        fake = FakeLogs({SPOT: [(1, "s", warning)]})
+        with fake.patch():
             got = status.interruptions(365, NOW)
-        self.assertEqual(seen["logGroupName"], "test-spot-group")
+        self.assertEqual(fake.started[0]["logGroupName"], SPOT)
         self.assertEqual(
             got,
             [
@@ -2239,6 +2251,126 @@ class InterruptionsTests(unittest.TestCase):
                 }
             ],
         )
+
+
+class LogReadTests(unittest.TestCase):
+    def read(self, fake, deadline=None):
+        with fake.patch(), mock.patch.object(status.time, "sleep"):
+            return status.LogRead(EPISODES, NOW, 365, deadline).records()
+
+    def test_queries_the_group_over_the_window(self):
+        fake = FakeLogs({EPISODES: episode_rows((1, episode("s", "e")))})
+        self.read(fake)
+        (query,) = fake.started
+        self.assertEqual(query["logGroupName"], EPISODES)
+        self.assertEqual(query["startTime"], int(NOW.timestamp()) - 365 * 86400)
+        self.assertEqual(query["endTime"], int(NOW.timestamp()))
+        self.assertEqual(
+            query["queryString"],
+            "fields @timestamp, @logStream, @message | limit 10000",
+        )
+
+    def test_waits_through_scheduled_and_running(self):
+        fake = FakeLogs(
+            {EPISODES: episode_rows((1, episode("s", "e")))},
+            statuses=("Scheduled", "Running", "Complete"),
+        )
+        self.assertEqual(len(self.read(fake)), 1)
+
+    def test_a_result_count_at_the_limit_raises(self):
+        rows = episode_rows(*[(n, {"n": n}) for n in range(status.INSIGHTS_ROW_LIMIT)])
+        with self.assertRaisesRegex(RuntimeError, "limit"):
+            self.read(FakeLogs({EPISODES: rows}))
+
+    def test_a_result_count_under_the_limit_is_kept_whole(self):
+        count = status.INSIGHTS_ROW_LIMIT - 1
+        rows = episode_rows(*[(n, {"n": n}) for n in range(count)])
+        self.assertEqual(len(self.read(FakeLogs({EPISODES: rows}))), count)
+
+    def test_failed_cancelled_and_timeout_raise(self):
+        for state in ("Failed", "Cancelled", "Timeout"):
+            with self.subTest(state), self.assertRaisesRegex(RuntimeError, state):
+                self.read(FakeLogs(statuses=("Running", state)))
+
+    def test_gives_up_at_the_deadline_instead_of_hanging(self):
+        fake = FakeLogs(statuses=("Running",))
+        with self.assertRaises(TimeoutError):
+            self.read(fake, deadline=status.time.monotonic() - 1)
+
+    def test_splits_by_stream_and_keeps_log_timestamps(self):
+        rows = [(5, "a", {"k": 1}), (7, "b", {"k": 2})]
+        with FakeLogs({EPISODES: rows}).patch():
+            read = status.LogRead(EPISODES, NOW, 365)
+            self.assertEqual(read.records("a"), [(5, {"k": 1})])
+            self.assertEqual(read.records("b"), [(7, {"k": 2})])
+            self.assertEqual(len(read.records()), 2)
+
+    def test_a_failed_read_is_attempted_once(self):
+        fake = FakeLogs(statuses=("Failed",))
+        with fake.patch():
+            read = status.LogRead(EPISODES, NOW, 365)
+            for _ in range(2):
+                with self.assertRaises(RuntimeError):
+                    read.records()
+        self.assertEqual(len(fake.started), 1)
+
+
+class LogGroupReadsPerRequestTests(unittest.TestCase):
+    """However many sections draw on a log group, one request queries it once."""
+
+    class FakeContext:
+        def get_remaining_time_in_millis(self):
+            return 10_000
+
+    def setUp(self):
+        status._public_cache.update(data=None, fetched_at=0.0)
+        self.addCleanup(status._public_cache.update, data=None, fetched_at=0.0)
+        started = "2026-09-01T10:00:00Z"
+        self.fake = FakeLogs(
+            {
+                EPISODES: episode_rows((1, episode(started, started, "deploy")))
+                + change_rows((2, change(started))),
+                SPOT: [(3, "s", {"time": started, "detail": {"instance-id": "i-1"}})],
+            }
+        )
+        for p in (
+            self.fake.patch(),
+            mock.patch.object(
+                status.cloudwatch,
+                "get_metric_data",
+                side_effect=ReliabilityNowKeysTests._fake_get_metric_data,
+                create=True,
+            ),
+            mock.patch.object(status, "codedeploy_windows", return_value=[]),
+            mock.patch.object(
+                status,
+                "host_image_storage",
+                return_value={"host": 1, "image": 2, "storage": 3},
+            ),
+            mock.patch.object(status, "deployment", return_value={}),
+            mock.patch.object(status, "PUBLIC_RELIABILITY", "true"),
+        ):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def assert_one_read_per_group(self):
+        self.assertEqual(self.fake.reads_of(EPISODES), 1)
+        self.assertEqual(self.fake.reads_of(SPOT), 1)
+
+    def test_collect_status(self):
+        result = status.collect_status(self.FakeContext())
+        for name in ("reliability", "incidents", "changes", "interruptions"):
+            self.assertNotIn("error", result[name], name)
+        self.assertEqual(len(result["incidents"]), 1)
+        self.assertEqual(len(result["changes"]), 1)
+        self.assertEqual(len(result["interruptions"]), 1)
+        self.assert_one_read_per_group()
+
+    def test_public_response(self):
+        response = status.public_response(self.FakeContext())
+        body = json.loads(response["body"])
+        self.assertEqual(len(body["incidents"]), 1)
+        self.assert_one_read_per_group()
 
 
 class PublicResponseTests(unittest.TestCase):

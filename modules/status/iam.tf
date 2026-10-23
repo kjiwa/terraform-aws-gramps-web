@@ -84,11 +84,12 @@ data "aws_iam_policy_document" "status" {
   # The episodes and Spot interruption log groups are owned by the monitoring
   # module; their ARNs are constructed from the shared literal names (see
   # local.episodes_log_group) rather than passed in. The grant covers the
-  # episodes and changes streams of the first.
+  # episodes and changes streams of the first. Both Logs Insights actions are
+  # scopable to the log group.
   statement {
     sid     = "IncidentLog"
     effect  = "Allow"
-    actions = ["logs:FilterLogEvents"]
+    actions = ["logs:StartQuery", "logs:GetQueryResults"]
     resources = [
       "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:${local.episodes_log_group}:*",
       "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:${local.spot_interruptions_log_group}:*",

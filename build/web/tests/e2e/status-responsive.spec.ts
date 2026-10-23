@@ -77,9 +77,16 @@ test('Incidents table causes no page overflow at 320px once opened', async ({
     tokens: { access: 'e2e-access-token' },
   });
   await page.goto(`${baseURL}/_status`);
-  await page.locator('.card', { hasText: 'Incidents' }).locator('summary').first().click();
+  await page
+    .locator('.card', { has: page.locator('h3', { hasText: /^Incidents$/ }) })
+    .locator('summary')
+    .first()
+    .click();
   await expect(
-    page.locator('.card', { hasText: 'Incidents' }).locator('.table-scroll table').first(),
+    page
+      .locator('.card', { has: page.locator('h3', { hasText: /^Incidents$/ }) })
+      .locator('.table-scroll table')
+      .first(),
   ).toBeVisible();
 
   const overflow = await page.evaluate(() => {

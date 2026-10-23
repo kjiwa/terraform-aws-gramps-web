@@ -1,13 +1,25 @@
 /**
- * The pure computations behind the Spot panel and the events lane: week
- * bucketing, medians and percentiles, the absorbed rule, pool grouping, the
- * recovery split, the lane's time axis. No DOM; edges named in each title.
+ * The pure computations behind the Incidents card and the strip readout: the
+ * page's time grid, per-cell incident counts, medians and percentiles, pool
+ * grouping, the recovery split, the strip's time axis. No DOM; edges named in each title.
  */
 import { describe, expect, it } from 'vitest';
 import type { Change, Episode, Interruption } from '../../src/generated/status-payload.d.ts';
 import { labelPlacement, niceTicks } from '../../src/status/charts/BarChart.tsx';
-import { causeClass, isDeliberateDeploy, triggerLabel } from '../../src/status/causes.ts';
-import { laneEvents, lanePercent, laneSpan, laneWindow } from '../../src/status/events.ts';
+import {
+  CAUSE_CLASSES,
+  causeClass,
+  isDeliberateChange,
+  triggerLabel,
+} from '../../src/status/causes.ts';
+import {
+  cellIncidents,
+  cellLabel,
+  incidentCounts,
+  incidentsText,
+  stripWindow,
+} from '../../src/status/events.ts';
+import { cellOf, gridFor, RANGE_ORDER } from '../../src/status/ranges.ts';
 import {
   hasSpotActivity,
   median,
@@ -15,8 +27,6 @@ import {
   poolTable,
   recoverySplit,
   summarize,
-  weeklyBuckets,
-  weekStartMs,
   type SpotData,
 } from '../../src/status/spot.ts';
 
@@ -45,25 +55,6 @@ function data(episodes: Episode[] = [], warnings: Interruption[] = []): SpotData
   return { episodes, warnings };
 }
 
-describe('weekStartMs', () => {
-  it('snaps to Monday 00:00 UTC, with Sunday night still in the earlier week', () => {
-    expect(iso(weekStartMs(Date.parse('2026-06-17T12:00:00Z')))).toBe('2026-06-15T00:00:00.000Z');
-    expect(iso(weekStartMs(Date.parse('2026-06-15T00:00:00Z')))).toBe('2026-06-15T00:00:00.000Z');
-    expect(iso(weekStartMs(Date.parse('2026-06-14T23:59:59Z')))).toBe('2026-06-08T00:00:00.000Z');
-  });
-
-  it('is independent of local DST: the weeks around a US spring-forward are 7 days apart', () => {
-    const before = weekStartMs(Date.parse('2026-03-05T12:00:00Z'));
-    const after = weekStartMs(Date.parse('2026-03-12T12:00:00Z'));
-    expect(after - before).toBe(7 * DAY);
-  });
-
-  it('handles the epoch (a Thursday) and times before it', () => {
-    expect(iso(weekStartMs(0))).toBe('1969-12-29T00:00:00.000Z');
-    expect(iso(weekStartMs(-1))).toBe('1969-12-29T00:00:00.000Z');
-  });
-});
-
 describe('median and percentile', () => {
   it('return null for no data', () => {
     expect(median([])).toBeNull();
@@ -82,83 +73,82 @@ describe('median and percentile', () => {
   });
 });
 
-describe('weeklyBuckets', () => {
-  it('with no data still spans the range, every week at zero', () => {
-    const weeks = weeklyBuckets(data(), '30d', NOW);
-    expect(weeks.length).toBeGreaterThanOrEqual(5);
-    expect(weeks.every((w) => w.outages === 0 && w.absorbed === 0)).toBe(true);
-    expect(weeks[weeks.length - 1]?.start).toBe('2026-06-15T00:00:00.000Z');
+describe('gridFor and cellOf', () => {
+  it('tiles each range with its own cell count back from the end', () => {
+    const counts = RANGE_ORDER.map((k) => gridFor(k, NOW).count);
+    expect(counts).toEqual([24, 28, 30, 90, 52]);
+    const g = gridFor('7d', NOW);
+    expect(g.endMs).toBe(NOW);
+    expect(g.endMs - g.startMs).toBe(28 * 6 * 3600_000);
   });
 
-  it('counts warnings with no episodes as absorbed', () => {
-    const weeks = weeklyBuckets(data([], [warning(NOW - DAY), warning(NOW - 2 * DAY)]), '30d', NOW);
-    expect(weeks.reduce((a, w) => a + w.absorbed, 0)).toBe(2);
-    expect(weeks.reduce((a, w) => a + w.outages, 0)).toBe(0);
+  it('puts the start in the first cell and the end in the last, and nothing outside', () => {
+    const g = gridFor('30d', NOW);
+    expect(cellOf(g, g.startMs)).toBe(0);
+    expect(cellOf(g, g.endMs)).toBe(29);
+    expect(cellOf(g, g.startMs - 1)).toBe(-1);
+    expect(cellOf(g, g.endMs + 1)).toBe(-1);
+    expect(cellOf(g, g.startMs + DAY)).toBe(1);
   });
+});
 
-  it('counts episodes with no warnings as outages and floors absorbed at zero', () => {
-    const weeks = weeklyBuckets(data([reclaim(NOW - DAY), reclaim(NOW - 2 * DAY)]), '30d', NOW);
-    expect(weeks.reduce((a, w) => a + w.outages, 0)).toBe(2);
-    expect(weeks.every((w) => w.absorbed === 0)).toBe(true);
+describe('incidentCounts', () => {
+  it('stacks counts per cell in cause-class order, ignoring episodes outside the grid', () => {
+    const g = gridFor('30d', NOW);
+    const planned = { planned: true, cause: 'deploy' } as const;
+    const counts = incidentCounts(g, [
+      reclaim(NOW - 1000),
+      reclaim(NOW - 2000),
+      reclaim(NOW - 1000, planned),
+      reclaim(NOW - 3 * DAY, { cause: 'health-replace' }),
+      reclaim(NOW - 90 * DAY),
+    ]);
+    expect(counts).toHaveLength(30);
+    expect(CAUSE_CLASSES.map((c) => c.id)).toEqual(['spot', 'planned', 'unplanned']);
+    expect(counts[29]).toEqual([2, 1, 0]);
+    expect(counts[27]).toEqual([0, 0, 1]);
+    expect(counts.flat().reduce((a, n) => a + n, 0)).toBe(4);
   });
+});
 
-  it('includes the exact range start and excludes a millisecond before it', () => {
-    const start = NOW - 30 * DAY;
-    const weeks = weeklyBuckets(data([reclaim(start), reclaim(start - 1)]), '30d', NOW);
-    expect(weeks.reduce((a, w) => a + w.outages, 0)).toBe(1);
-  });
-
-  it('ignores episodes of other causes', () => {
-    const other = reclaim(NOW - DAY, { cause: 'deploy', planned: true });
-    expect(weeklyBuckets(data([other]), '30d', NOW).every((w) => w.outages === 0)).toBe(true);
+describe('cellLabel', () => {
+  it('reads as an hour for sub-day cells, a date for day cells, a date span for week cells', () => {
+    expect(cellLabel(gridFor('24h', NOW), 23).title).toBe('2026-06-17 11:00 UTC');
+    expect(cellLabel(gridFor('30d', NOW), 29).title).toBe('2026-06-16');
+    expect(cellLabel(gridFor('1y', NOW), 51).title).toBe('2026-06-10 – 2026-06-16');
   });
 });
 
 describe('summarize', () => {
-  it('sums absorbed per week, so a surplus of outages in one week cannot cancel another week', () => {
-    const lastWeek = NOW - 9 * DAY;
-    const thisWeek = NOW - DAY;
+  const win = (days: number) => ({ startMs: NOW - days * DAY, endMs: NOW });
+
+  it('counts warnings and spot-reclaim episodes in the window', () => {
     const d = data(
-      [reclaim(lastWeek), reclaim(lastWeek + 1000), reclaim(thisWeek)],
-      [
-        warning(lastWeek),
-        warning(thisWeek - 1000),
-        warning(thisWeek - 2000),
-        warning(thisWeek - 3000),
-      ],
+      [reclaim(NOW - DAY), reclaim(NOW - DAY + 1000), reclaim(NOW - 40 * DAY)],
+      [warning(NOW - DAY), warning(NOW - 2 * DAY), warning(NOW - 50 * DAY)],
     );
-    const s = summarize(d, '30d', NOW);
-    expect(s.reclaims).toBe(4);
-    expect(s.outages).toBe(3);
-    expect(s.absorbed).toBe(2);
+    const s = summarize(d, win(30));
+    expect(s.reclaims).toBe(2);
+    expect(s.outages).toBe(2);
   });
 
-  it('reports downtime, its share of all episodes, and median with p90', () => {
+  it('reports the share of all episode downtime that was spot-reclaim', () => {
     const d = data([
       reclaim(NOW - 1 * DAY, { duration_s: 100 }),
       reclaim(NOW - 2 * DAY, { duration_s: 300 }),
       { ...reclaim(NOW - 3 * DAY, { duration_s: 600 }), cause: 'deploy', planned: true },
     ]);
-    const s = summarize(d, '30d', NOW);
-    expect(s.downtimeS).toBe(400);
-    expect(s.downtimeShare).toBeCloseTo(40);
-    expect(s.medianS).toBe(200);
-    expect(s.p90S).toBe(300);
+    expect(summarize(d, win(30)).downtimeShare).toBeCloseTo(40);
   });
 
-  it('has null share and recovery when nothing is in range', () => {
-    const s = summarize(data([reclaim(NOW - 200 * DAY)]), '30d', NOW);
-    expect(s).toMatchObject({ reclaims: 0, outages: 0, absorbed: 0, downtimeS: 0 });
-    expect(s.downtimeShare).toBeNull();
-    expect(s.medianS).toBeNull();
-    expect(s.p90S).toBeNull();
+  it('has a null share when nothing is in the window', () => {
+    const s = summarize(data([reclaim(NOW - 200 * DAY)]), win(30));
+    expect(s).toEqual({ reclaims: 0, outages: 0, downtimeShare: null });
   });
 
-  it('widens with the range', () => {
-    const d = data([reclaim(NOW - 60 * DAY), reclaim(NOW - 200 * DAY)]);
-    expect(summarize(d, '30d', NOW).outages).toBe(0);
-    expect(summarize(d, '90d', NOW).outages).toBe(1);
-    expect(summarize(d, '1y', NOW).outages).toBe(2);
+  it('includes the exact window start and excludes a millisecond before it', () => {
+    const start = NOW - 30 * DAY;
+    expect(summarize(data([reclaim(start), reclaim(start - 1)]), win(30)).outages).toBe(1);
   });
 });
 
@@ -278,12 +268,12 @@ describe('cause classes', () => {
     expect(causeClass({ cause: 'health-replace', planned: false })).toBe('unplanned');
   });
 
-  it('counts a deploy as deliberate only for a user or a rollback', () => {
+  it('counts a deploy as deliberate only for a user or a rollback, and any instance refresh', () => {
     const c = (creator: string | null, kind: Change['kind'] = 'deploy') => ({ kind, creator });
-    expect(isDeliberateDeploy(c('user'))).toBe(true);
-    expect(isDeliberateDeploy(c('codeDeployRollback'))).toBe(true);
-    expect(isDeliberateDeploy(c('autoscaling'))).toBe(false);
-    expect(isDeliberateDeploy(c(null, 'instance-refresh'))).toBe(false);
+    expect(isDeliberateChange(c('user'))).toBe(true);
+    expect(isDeliberateChange(c('codeDeployRollback'))).toBe(true);
+    expect(isDeliberateChange(c('autoscaling'))).toBe(false);
+    expect(isDeliberateChange(c(null, 'instance-refresh'))).toBe(true);
   });
 
   it('names the trigger of a change', () => {
@@ -293,7 +283,7 @@ describe('cause classes', () => {
   });
 });
 
-describe('events lane', () => {
+describe('strip incidents', () => {
   const cell = (label: string) => ({
     label,
     avg: 1,
@@ -303,90 +293,47 @@ describe('events lane', () => {
   });
 
   it('reads the window start from each of the three cell label formats', () => {
-    expect(laneWindow([cell('2026-06-15 14:00')], 3600)).toEqual({
+    expect(stripWindow([cell('2026-06-15 14:00')], 3600)).toEqual({
       startMs: Date.parse('2026-06-15T14:00:00Z'),
-      endMs: Date.parse('2026-06-15T15:00:00Z'),
+      cellMs: 3600_000,
     });
-    expect(laneWindow([cell('2026-06-15'), cell('2026-06-16')], 86400)?.endMs).toBe(
-      Date.parse('2026-06-17T00:00:00Z'),
+    expect(stripWindow([cell('2026-06-15'), cell('2026-06-16')], 86400)?.startMs).toBe(
+      Date.parse('2026-06-15T00:00:00Z'),
     );
-    expect(laneWindow([cell('2026-07-13 – 2026-07-19')], 604800)?.startMs).toBe(
+    expect(stripWindow([cell('2026-07-13 – 2026-07-19')], 604800)?.startMs).toBe(
       Date.parse('2026-07-13T00:00:00Z'),
     );
   });
 
   it('has no window for an unparseable label or no cells', () => {
-    expect(laneWindow([cell('week of')], 3600)).toBeNull();
-    expect(laneWindow([], 3600)).toBeNull();
+    expect(stripWindow([cell('week of')], 3600)).toBeNull();
+    expect(stripWindow([], 3600)).toBeNull();
   });
 
-  const window = { startMs: NOW - DAY, endMs: NOW };
-  const change = (
-    atMs: number,
-    creator: string | null,
-    kind: Change['kind'] = 'deploy',
-  ): Change => ({
-    at: iso(atMs),
-    kind,
-    id: 'x',
-    creator,
-    outcome: 'succeeded',
-    duration_s: 10,
-    description: null,
-    outage: false,
+  const window = { startMs: NOW - DAY, cellMs: 3600_000 };
+
+  it('picks the episodes overlapping one cell, including one that began earlier', () => {
+    const cellStart = window.startMs + 5 * 3600_000;
+    const inside = reclaim(cellStart + 600_000);
+    const earlier = reclaim(cellStart - 600_000, { duration_s: 1200 });
+    const before = reclaim(cellStart - 7200_000);
+    const after = reclaim(cellStart + 3600_000);
+    expect(cellIncidents(window, 5, [inside, earlier, before, after])).toEqual([inside, earlier]);
   });
 
-  it('keeps episodes and deliberate deploys inside the window, in time order', () => {
-    const events = laneEvents(
-      window,
-      [reclaim(NOW - 3600_000), reclaim(NOW - 2 * DAY), reclaim(NOW)],
-      [
-        change(NOW - 7200_000, 'user'),
-        change(NOW - 1800_000, 'autoscaling'),
-        change(NOW - 900_000, null, 'instance-refresh'),
-      ],
+  it('treats a cell as half-open: an episode ending exactly at its start counts, one starting at its end does not', () => {
+    const cellStart = window.startMs + 3600_000;
+    expect(cellIncidents(window, 1, [reclaim(cellStart - 300_000)])).toHaveLength(1);
+    expect(cellIncidents(window, 1, [reclaim(cellStart + 3600_000)])).toHaveLength(0);
+  });
+
+  it('names incidents by cause and duration, capped with a remainder', () => {
+    expect(incidentsText([])).toBe('');
+    expect(incidentsText([reclaim(NOW)])).toBe('1 incident: spot-reclaim 5m 0s');
+    const causes = ['deploy', 'rightsize', 'backup', 'unknown', 'deploy'] as const;
+    expect(incidentsText(causes.map((cause, i) => reclaim(NOW + i, { cause })))).toBe(
+      '5 incidents: deploy 5m 0s, rightsize 5m 0s, backup 5m 0s, +2 more',
     );
-    expect(events.map((e) => e.kind)).toEqual(['deploy', 'episode']);
-    expect(events[0]?.at).toBe(iso(NOW - 7200_000));
-  });
-
-  it('keeps an episode that began before the window or runs past its end, drops one entirely outside', () => {
-    const events = laneEvents(
-      window,
-      [
-        reclaim(window.startMs - 600_000, { duration_s: 1200 }),
-        reclaim(window.endMs - 60_000, { duration_s: 3600 }),
-        reclaim(window.startMs - 2 * DAY, { duration_s: 300 }),
-        reclaim(window.endMs + 60_000, { duration_s: 300 }),
-      ],
-      [],
-    );
-    expect(events).toHaveLength(2);
-  });
-
-  it('treats the window edges as inside: an episode ending exactly at the start counts, one starting exactly at the end does not', () => {
-    const atStart = reclaim(window.startMs - 300_000, { duration_s: 300 });
-    const atEnd = reclaim(window.endMs, { duration_s: 300 });
-    expect(laneEvents(window, [atStart], [])).toHaveLength(1);
-    expect(laneEvents(window, [atEnd], [])).toHaveLength(0);
-  });
-
-  it('clamps a mark to the lane', () => {
-    const early = laneSpan(window, iso(window.startMs - DAY / 4), DAY / 2000);
-    expect(early.left).toBe(0);
-    expect(early.width).toBeCloseTo(25);
-    const late = laneSpan(window, iso(window.endMs - DAY / 10), DAY / 1000);
-    expect(late.left).toBeCloseTo(90);
-    expect(late.width).toBeCloseTo(10);
-    expect(late.left + late.width).toBeLessThanOrEqual(100.0001);
-  });
-
-  it('is empty for an empty window, so the lane renders nothing', () => {
-    expect(laneEvents(window, [], [])).toEqual([]);
-  });
-
-  it('places an instant as a percentage of the window', () => {
-    expect(lanePercent(window, iso(NOW - DAY / 2))).toBe(50);
   });
 });
 

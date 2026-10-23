@@ -1,8 +1,9 @@
 /**
- * The Spot reclaims panel in real Chromium: presence rules, the client-side
- * range toggle, the bar chart's tooltip on hover and focus, and the
- * operator-only and public views. Layout-dependent, so it lives here rather
- * than in Vitest (tests/unit/status-spot.test.ts covers the rest).
+ * The Incidents card and its Spot subsection in real Chromium: presence
+ * rules, the client-side range toggle, the bar chart's tooltip on hover and
+ * focus, and the operator-only and public views. Layout-dependent, so it
+ * lives here rather than in Vitest (tests/unit/status-spot.test.ts covers
+ * the rest).
  */
 import type { Page } from '@playwright/test';
 import { payloadFor, publicFrom, quietSpotPayload } from '../support/payload.ts';
@@ -11,10 +12,12 @@ import { expect, test, type StartStatusOptions } from './fixtures.ts';
 
 type Start = (opts: StartStatusOptions) => Promise<string>;
 
-const spotCard = (page: Page) =>
-  page.locator('.card', { has: page.locator('h3', { hasText: 'Spot reclaims' }) });
+const incidentsCard = (page: Page) =>
+  page.locator('.card', { has: page.locator('h3', { hasText: /^Incidents$/ }) });
+const spotHeading = (page: Page) =>
+  incidentsCard(page).getByRole('heading', { name: 'Spot reclaims' });
 const reclaimsTile = (page: Page) =>
-  spotCard(page).locator('.stat', { hasText: 'Reclaims' }).first().locator('.n');
+  incidentsCard(page).locator('.stat', { hasText: 'Reclaim warnings' }).locator('.n');
 
 async function openOperator(page: Page, start: Start, body = payloadFor(ALL_TOGGLES_ON)) {
   const baseURL = await start({
@@ -25,21 +28,21 @@ async function openOperator(page: Page, start: Start, body = payloadFor(ALL_TOGG
   await expect(page.locator('.card > h3').first()).toBeVisible();
 }
 
-test('shows tiles, the weekly chart, and the operator views with data', async ({
+test('shows tiles, the cause-stacked chart, and the operator views with data', async ({
   page,
   startStatus,
 }) => {
   await openOperator(page, startStatus);
-  const card = spotCard(page);
+  const card = incidentsCard(page);
   await expect(card).toBeVisible();
-  await expect(card.locator('.stat')).toHaveCount(6);
   await expect(card.locator('.bar-chart svg')).toHaveCount(1);
   await expect(card.locator('.bar-hit').first()).toHaveAttribute(
     'aria-label',
-    /Week of .*Caused an outage \d+, Absorbed \d+, total \d+/,
+    /Spot reclaim \d+, Planned \d+, Unplanned \d+, total \d+/,
   );
+  await expect(spotHeading(page)).toBeVisible();
   await expect(card.getByRole('heading', { name: 'Recovery split' })).toBeVisible();
-  await expect(card.getByRole('heading', { name: 'Pools' })).toBeVisible();
+  await expect(card.locator('summary', { hasText: 'Pools' })).toBeVisible();
 });
 
 test('the range toggle changes the tiles without a refetch', async ({ page, startStatus }) => {
@@ -49,19 +52,20 @@ test('the range toggle changes the tiles without a refetch', async ({ page, star
   page.on('request', (r) => {
     if (r.url().includes('/_status/')) fetches++;
   });
-  await spotCard(page).getByRole('button', { name: '1y' }).click();
+  await incidentsCard(page).getByRole('button', { name: '1y' }).click();
   await expect(reclaimsTile(page)).not.toHaveText(before ?? '');
   expect(fetches).toBe(0);
 });
 
 test('a bar shows its tooltip on hover and on keyboard focus', async ({ page, startStatus }) => {
   await openOperator(page, startStatus);
-  const bars = spotCard(page).locator('.bar-hit');
+  const bars = incidentsCard(page).locator('.bar-hit');
   await bars.nth(1).hover();
-  const tip = spotCard(page).locator('.tip');
-  await expect(tip).toContainText('Week of');
-  await expect(tip).toContainText('Caused an outage');
-  await expect(tip).toContainText('Absorbed');
+  const tip = incidentsCard(page).locator('.tip');
+  await expect(tip).toContainText(/\d{4}-\d{2}-\d{2}/);
+  await expect(tip).toContainText('Spot reclaim');
+  await expect(tip).toContainText('Planned');
+  await expect(tip).toContainText('Unplanned');
   await expect(tip).toContainText('total');
   await page.mouse.move(0, 0);
   await expect(tip).toHaveCount(0);
@@ -73,14 +77,20 @@ test('a bar shows its tooltip on hover and on keyboard focus', async ({ page, st
   await expect(tip).toBeVisible();
 });
 
-test('the panel is absent for On-Demand with no reclaims', async ({ page, startStatus }) => {
+test('the Spot subsection is absent for On-Demand with no reclaims', async ({
+  page,
+  startStatus,
+}) => {
   await openOperator(page, startStatus, quietSpotPayload(false));
-  await expect(spotCard(page)).toHaveCount(0);
+  await expect(spotHeading(page)).toHaveCount(0);
 });
 
-test('the panel shows at zero for Spot with no reclaims', async ({ page, startStatus }) => {
+test('the Spot subsection shows at zero for Spot with no reclaims', async ({
+  page,
+  startStatus,
+}) => {
   await openOperator(page, startStatus, quietSpotPayload(true));
-  await expect(spotCard(page)).toContainText('No reclaims in the last 30 days.');
+  await expect(spotHeading(page)).toBeVisible();
   await expect(reclaimsTile(page)).toHaveText('0');
 });
 
@@ -95,14 +105,20 @@ test('the public view shows tiles and the chart, not the pool table or the recov
     },
   });
   await page.goto(`${baseURL}/_status`);
-  const card = spotCard(page);
-  await expect(card.locator('.stat')).toHaveCount(6);
+  const card = incidentsCard(page);
   await expect(card.locator('.bar-chart svg')).toHaveCount(1);
-  await expect(card.getByRole('heading', { name: 'Pools' })).toHaveCount(0);
+  await expect(spotHeading(page)).toBeVisible();
+  await expect(card.locator('summary', { hasText: 'Pools' })).toHaveCount(0);
   await expect(card.getByRole('heading', { name: 'Recovery split' })).toHaveCount(0);
 });
 
-test('the public Changes table lists deliberate changes only', async ({ page, startStatus }) => {
+const changesCard = (page: Page) =>
+  page.locator('.card', { has: page.locator('h3', { hasText: /^Changes$/ }) });
+
+test('the public Changes card lists deliberate changes only, with no filter', async ({
+  page,
+  startStatus,
+}) => {
   const baseURL = await startStatus({
     server: {
       toggles: ALL_TOGGLES_ON,
@@ -110,36 +126,47 @@ test('the public Changes table lists deliberate changes only', async ({ page, st
     },
   });
   await page.goto(`${baseURL}/_status`);
-  await page.locator('summary', { hasText: /\d+ changes?/ }).click();
-  const triggers = page
-    .locator('details', { hasText: 'Trigger' })
-    .locator('tbody tr td:nth-child(3)');
-  await expect(triggers.filter({ hasText: 'autoscaling' })).toHaveCount(0);
-  await expect(triggers.filter({ hasText: 'rollback' })).toHaveCount(1);
+  const card = changesCard(page);
+  await expect(card.locator('.toggle-group')).toHaveCount(0);
+  await card.locator('summary', { hasText: /\d+ changes?/ }).click();
+  await expect(card.locator('th', { hasText: 'Trigger' })).toHaveCount(0);
+  await expect(card.locator('tbody tr')).toHaveCount(5);
 });
 
-test('lane marks drive the strip readout, with no tooltip and no layout jump', async ({
+test('the operator Changes card defaults to deliberate and lists everything under All', async ({
+  page,
+  startStatus,
+}) => {
+  await openOperator(page, startStatus);
+  const card = changesCard(page);
+  await card.locator('summary').click();
+  await expect(card.locator('tbody tr')).toHaveCount(5);
+  await expect(card.locator('th', { hasText: 'Trigger' })).toHaveCount(0);
+  await card.getByRole('button', { name: 'All' }).click();
+  await expect(card.locator('tbody tr')).toHaveCount(7);
+  await expect(card.locator('th', { hasText: 'Trigger' })).toBeVisible();
+});
+
+test('the strip readout names the incidents of the hovered cell, with no layout jump', async ({
   page,
   startStatus,
 }) => {
   await openOperator(page, startStatus);
   const card = page.locator('.card', { has: page.locator('h3', { hasText: 'Reliability' }) });
+  await expect(card.locator('.lane')).toHaveCount(0);
+  const strip = card.locator('.strip');
   const readout = card.locator('.strip-key');
-  const resting = await readout.textContent();
+  const box = await strip.boundingBox();
   const before = await card.boundingBox();
+  if (!box) throw new Error('strip has no box');
 
-  await card.locator('.lane-episode').first().hover();
-  await expect(readout).not.toHaveText(resting ?? '');
-  await expect(readout).toContainText(/UTC · [a-z-]+ · .* down/);
-  await expect(card.locator('.tip')).toHaveCount(0);
-  expect((await card.boundingBox())?.height).toBe(before?.height);
-
-  await page.mouse.move(0, 0);
-  await expect(readout).toHaveText(resting ?? '');
-
-  await card.locator('.lane').focus();
-  await page.keyboard.press('Home');
-  await expect(readout).toContainText('UTC');
-  await expect(readout).not.toHaveText(resting ?? '');
+  const cells = await strip.locator('> div').count();
+  let named = false;
+  for (let i = 0; i < cells && !named; i++) {
+    await page.mouse.move(box.x + ((i + 0.5) / cells) * box.width, box.y + box.height / 2);
+    named = /\d+ incidents?: /.test((await readout.textContent()) ?? '');
+  }
+  expect(named).toBe(true);
+  expect(await card.locator('.tip').count()).toBe(0);
   expect((await card.boundingBox())?.height).toBe(before?.height);
 });
