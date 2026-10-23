@@ -9,7 +9,7 @@ import { labelPlacement, niceTicks } from '../../src/status/charts/BarChart.tsx'
 import {
   CAUSE_CLASSES,
   causeClass,
-  isDeliberateDeploy,
+  isDeliberateChange,
   triggerLabel,
 } from '../../src/status/causes.ts';
 import {
@@ -268,12 +268,12 @@ describe('cause classes', () => {
     expect(causeClass({ cause: 'health-replace', planned: false })).toBe('unplanned');
   });
 
-  it('counts a deploy as deliberate only for a user or a rollback', () => {
+  it('counts a deploy as deliberate only for a user or a rollback, and any instance refresh', () => {
     const c = (creator: string | null, kind: Change['kind'] = 'deploy') => ({ kind, creator });
-    expect(isDeliberateDeploy(c('user'))).toBe(true);
-    expect(isDeliberateDeploy(c('codeDeployRollback'))).toBe(true);
-    expect(isDeliberateDeploy(c('autoscaling'))).toBe(false);
-    expect(isDeliberateDeploy(c(null, 'instance-refresh'))).toBe(false);
+    expect(isDeliberateChange(c('user'))).toBe(true);
+    expect(isDeliberateChange(c('codeDeployRollback'))).toBe(true);
+    expect(isDeliberateChange(c('autoscaling'))).toBe(false);
+    expect(isDeliberateChange(c(null, 'instance-refresh'))).toBe(true);
   });
 
   it('names the trigger of a change', () => {

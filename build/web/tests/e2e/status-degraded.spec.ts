@@ -81,7 +81,7 @@ test('signed out with public_reliability on: public panels render with the signi
   const baseURL = await startStatus({ server: { toggles: ALL_TOGGLES_ON } });
   await page.goto(`${baseURL}/_status`);
 
-  await expect(page.locator('.card > h3')).toHaveText(['Reliability', 'Incidents']);
+  await expect(page.locator('.card > h3')).toHaveText(['Reliability', 'Incidents', 'Changes']);
   const gate = page.locator('#gate');
   await expect(gate).toBeVisible();
   await expect(gate.locator('h2')).toHaveText('Please sign in');

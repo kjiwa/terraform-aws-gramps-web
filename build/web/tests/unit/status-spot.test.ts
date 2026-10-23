@@ -1,6 +1,6 @@
 /**
  * The Incidents card (with its Spot subsection) and the Changes
- * table, mounted in jsdom: presence rules, the client-side range and pan, the
+ * card, mounted in jsdom: presence rules, the client-side range and pan, the
  * operator-only views, and what the public route does and does not show.
  * jsdom has no layout, so the bar chart's SVG is covered by Playwright
  * (tests/e2e/status-spot.spec.ts); everything else renders here.
@@ -76,7 +76,7 @@ describe('Spot subsection presence', () => {
     const titles = (m: Mounted) =>
       [...m.document.querySelectorAll('.card > h3')].map((h) => h.textContent);
     expect(titles(await mountOperator()).slice(0, 2)).toEqual(['Reliability', 'Incidents']);
-    expect(titles(await mountPublic())).toEqual(['Reliability', 'Incidents']);
+    expect(titles(await mountPublic())).toEqual(['Reliability', 'Incidents', 'Changes']);
   });
 
   it('is absent for On-Demand with no reclaims', async () => {
@@ -214,53 +214,62 @@ describe('events lane removal', () => {
   });
 });
 
-describe('Changes table', () => {
-  function changeDetails(c: Element | undefined): Element | undefined {
-    return [...(c?.querySelectorAll('details') ?? [])].find((d) =>
-      d.querySelector('summary')?.textContent?.includes('change'),
-    );
-  }
-
-  function changeHeaders(c: Element | undefined): (string | null)[] {
-    return [...(changeDetails(c)?.querySelectorAll('th') ?? [])].map((th) => th.textContent);
-  }
-
-  function changeRows(c: Element | undefined): string[][] {
-    const details = changeDetails(c);
-    return [...(details?.querySelectorAll('tbody tr') ?? [])].map((tr) =>
+describe('Changes card', () => {
+  const changesCard = (m: Mounted) => card(m, 'Changes');
+  const headers = (c: Element | undefined) =>
+    [...(c?.querySelectorAll('thead th') ?? [])].map((th) => th.textContent);
+  const rows = (c: Element | undefined) =>
+    [...(c?.querySelectorAll('tbody tr') ?? [])].map((tr) =>
       [...tr.querySelectorAll('td')].map((td) => td.textContent ?? ''),
     );
-  }
+  const summary = (c: Element | undefined) => c?.querySelector('summary')?.textContent ?? '';
 
-  it('lists everything the payload carries for an operator, newest first', async () => {
-    const incidents = card(await mountOperator(), 'Incidents');
-    const headers = changeHeaders(incidents);
-    expect(headers).toEqual([
+  it('defaults to deliberate changes, without the trigger column, newest first', async () => {
+    const c = changesCard(await mountOperator());
+    expect(c?.querySelector('[aria-pressed="true"]')?.textContent).toBe('Deliberate');
+    expect(headers(c)).toEqual(['Time (UTC)', 'Change', 'Outcome', 'Duration', 'Outage', 'Id']);
+    const r = rows(c);
+    expect(r).toHaveLength(5);
+    const times = r.map((x) => x[0] ?? '');
+    expect(times).toEqual([...times].sort().reverse());
+    expect(r.map((x) => x[1])).toContain('instance refresh');
+    expect(summary(c)).toMatch(/^5 changes · most recent /);
+    expect(c?.querySelectorAll('.badge-bad').length).toBeGreaterThan(0);
+  });
+
+  it('shows every change and the trigger under All, the summary counting what is shown', async () => {
+    const c = changesCard(await mountOperator());
+    press(c, 'All');
+    expect(headers(c)).toEqual([
       'Time (UTC)',
-      'What',
+      'Change',
       'Trigger',
       'Outcome',
       'Duration',
       'Outage',
       'Id',
-      'Description',
     ]);
-    const rows = changeRows(incidents);
-    expect(rows).toHaveLength(7);
-    const times = rows.map((r) => r[0] ?? '');
-    expect(times).toEqual([...times].sort().reverse());
-    expect(rows.map((r) => r[2])).toContain('autoscaling');
-    expect(rows.map((r) => r[1])).toContain('instance refresh');
-    expect(incidents?.querySelectorAll('.badge-bad').length).toBeGreaterThan(0);
+    expect(rows(c)).toHaveLength(7);
+    expect(rows(c).map((x) => x[2])).toContain('autoscaling');
+    expect(summary(c)).toMatch(/^7 changes · most recent /);
+    press(c, 'Deliberate');
+    expect(rows(c)).toHaveLength(5);
   });
 
-  it('lists deliberate changes only, and only the carried columns, on the public route', async () => {
-    const incidents = card(await mountPublic(), 'Incidents');
-    const rows = changeRows(incidents);
+  it('moves the description into the row title and out of the columns', async () => {
+    const c = changesCard(await mountOperator());
+    expect(headers(c)).not.toContain('Description');
+    const titled = [...(c?.querySelectorAll('tbody tr') ?? [])].filter((tr) =>
+      tr.getAttribute('title')?.includes('Rolled back to the previous revision'),
+    );
+    expect(titled).toHaveLength(1);
+  });
+
+  it('on the public route lists the carried columns with no filter to flip', async () => {
+    const c = changesCard(await mountPublic());
+    expect(headers(c)).toEqual(['Time (UTC)', 'Change', 'Outcome']);
+    expect(c?.querySelector('.toggle-group')).toBeNull();
     const expected = publicPayload().changes;
-    expect(rows).toHaveLength(Array.isArray(expected) ? expected.length : -1);
-    expect(rows.map((r) => r[2])).not.toContain('autoscaling');
-    const headers = changeHeaders(incidents);
-    expect(headers).toEqual(['Time (UTC)', 'What', 'Trigger', 'Outcome']);
+    expect(rows(c)).toHaveLength(Array.isArray(expected) ? expected.length : -1);
   });
 });

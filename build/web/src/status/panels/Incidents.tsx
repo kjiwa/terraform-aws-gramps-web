@@ -1,7 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import type {
-  Change,
   Episode,
   InstanceRef,
   Interruption,
@@ -9,7 +8,7 @@ import type {
 } from '../../generated/status-payload';
 import { fmtDate, fmtDay, fmtDuration, fmtPct, fmtStamp } from '../../shared/format';
 import { BarChart, type BarBucket, type BarSeries } from '../charts/BarChart';
-import { CAUSE_CLASSES, changeLabel, outcomeLabel, triggerLabel } from '../causes';
+import { CAUSE_CLASSES } from '../causes';
 import { cellLabel, incidentCounts } from '../events';
 import { DEFAULT_RANGE, gridFor, RANGE_ORDER, type RangeKey } from '../ranges';
 import {
@@ -104,63 +103,6 @@ function instanceCell(ep: Episode) {
     <>
       {type} · <span class="nowrap">{n.az}</span>
     </>
-  );
-}
-
-// Dataset-level columns, as in the episodes table: the public route carries
-// only at/kind/creator/outcome, the operator route everything.
-function ChangesTable({ changes }: { changes: Change[] }) {
-  const sorted = [...changes].sort((a, b) => (a.at < b.at ? 1 : -1));
-  const hasDuration = sorted.some((c) => c.duration_s !== undefined);
-  const hasOutage = sorted.some((c) => c.outage !== undefined);
-  const hasId = sorted.some((c) => c.id);
-  const hasDescription = sorted.some((c) => c.description);
-  return (
-    <details>
-      <summary>{`${sorted.length} change${sorted.length === 1 ? '' : 's'} · most recent ${fmtDate(sorted[0]?.at)}`}</summary>
-      <div class="table-scroll">
-        <table class="tbl dense">
-          <thead>
-            <tr>
-              <th>Time (UTC)</th>
-              <th>What</th>
-              <th>Trigger</th>
-              <th>Outcome</th>
-              {hasDuration && <th>Duration</th>}
-              {hasOutage && <th>Outage</th>}
-              {hasId && <th>Id</th>}
-              {hasDescription && <th>Description</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((c, i) => (
-              <tr key={i}>
-                <td class="nowrap" title={fmtDate(c.at)}>
-                  {fmtStamp(c.at)}
-                </td>
-                <td class="nowrap">{changeLabel(c)}</td>
-                <td class="nowrap">{triggerLabel(c)}</td>
-                <td>{outcomeLabel(c)}</td>
-                {hasDuration && <td>{fmtDuration(c.duration_s)}</td>}
-                {hasOutage && (
-                  <td>
-                    {c.outage === undefined ? (
-                      '—'
-                    ) : (
-                      <span class={c.outage ? 'badge badge-bad' : 'badge'}>
-                        {c.outage ? 'yes' : 'no'}
-                      </span>
-                    )}
-                  </td>
-                )}
-                {hasId && <td class="wrap">{c.id || '—'}</td>}
-                {hasDescription && <td class="wrap">{c.description || '—'}</td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </details>
   );
 }
 
@@ -306,13 +248,11 @@ function IncidentsBody({
   interruptions,
   spotEnabled,
   operator,
-  changes,
 }: {
   d: Episode[];
   interruptions: Interruption[] | PanelError | undefined;
   spotEnabled: boolean;
   operator?: boolean;
-  changes?: Change[] | PanelError | undefined;
 }) {
   const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
   const [end, setEnd] = useState<string | null>(null);
@@ -386,7 +326,6 @@ function IncidentsBody({
         ) : (
           <ErrNote message={interruptions.error} />
         ))}
-      {Array.isArray(changes) && changes.length > 0 && <ChangesTable changes={changes} />}
     </>
   );
 }
@@ -396,13 +335,11 @@ export function Incidents({
   interruptions,
   spotEnabled,
   operator,
-  changes,
 }: {
   d: Episode[] | PanelError | undefined;
   interruptions: Interruption[] | PanelError | undefined;
   spotEnabled: boolean;
   operator?: boolean;
-  changes?: Change[] | PanelError | undefined;
 }) {
   if (!d) return null;
   if ('error' in d) {
@@ -416,7 +353,6 @@ export function Incidents({
     return (
       <Card title="Incidents">
         <p class="note">No incidents in the last year.</p>
-        {Array.isArray(changes) && changes.length > 0 && <ChangesTable changes={changes} />}
       </Card>
     );
   }
@@ -427,7 +363,6 @@ export function Incidents({
         interruptions={interruptions}
         spotEnabled={spotEnabled}
         operator={operator}
-        changes={changes}
       />
     </Card>
   );

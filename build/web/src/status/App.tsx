@@ -14,6 +14,7 @@ import type { GETStatusDataResponse } from '../generated/status-payload';
 import { Gate, type GateKind, type GateState } from './gate';
 import { Assistant } from './panels/Assistant';
 import { Backups } from './panels/Backups';
+import { Changes } from './panels/Changes';
 import { Cost } from './panels/Cost';
 import { Deployment } from './panels/Deployment';
 import { Host } from './panels/Host';
@@ -141,8 +142,7 @@ export function App() {
   if (state.phase === 'loading' || state.phase === 'gate') return null;
 
   if (state.phase === 'public') {
-    // Deliberately no section heading: a single group (reliability +
-    // incidents) needs no heading either way.
+    // Deliberately no section heading: X    // incidents) needs no heading either way.
     return (
       <RetryContext.Provider value={retry}>
         <PanelBoundary resetKey={state.data} title="Reliability">
@@ -153,8 +153,10 @@ export function App() {
             d={state.data.incidents}
             interruptions={state.data.interruptions}
             spotEnabled={state.data.spot_enabled}
-            changes={state.data.changes}
           />
+        </PanelBoundary>
+        <PanelBoundary resetKey={state.data} title="Changes">
+          <Changes d={state.data.changes} />
         </PanelBoundary>
       </RetryContext.Provider>
     );
@@ -178,7 +180,6 @@ export function App() {
           d={data.incidents}
           interruptions={data.interruptions}
           spotEnabled={data.spot_enabled}
-          changes={data.changes}
           operator
         />
       </PanelBoundary>
@@ -186,6 +187,9 @@ export function App() {
       <Section title="Delivery" />
       <PanelBoundary resetKey={state.data} title="Deployment">
         <Deployment d={data.deployment} image={data.image} meta={meta} repo={data.source_repo} />
+      </PanelBoundary>
+      <PanelBoundary resetKey={state.data} title="Changes">
+        <Changes d={data.changes} />
       </PanelBoundary>
 
       {data.backups && (

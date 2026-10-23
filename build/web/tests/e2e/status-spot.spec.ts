@@ -112,7 +112,13 @@ test('the public view shows tiles and the chart, not the pool table or the recov
   await expect(card.getByRole('heading', { name: 'Recovery split' })).toHaveCount(0);
 });
 
-test('the public Changes table lists deliberate changes only', async ({ page, startStatus }) => {
+const changesCard = (page: Page) =>
+  page.locator('.card', { has: page.locator('h3', { hasText: /^Changes$/ }) });
+
+test('the public Changes card lists deliberate changes only, with no filter', async ({
+  page,
+  startStatus,
+}) => {
   const baseURL = await startStatus({
     server: {
       toggles: ALL_TOGGLES_ON,
@@ -120,12 +126,25 @@ test('the public Changes table lists deliberate changes only', async ({ page, st
     },
   });
   await page.goto(`${baseURL}/_status`);
-  await page.locator('summary', { hasText: /\d+ changes?/ }).click();
-  const triggers = page
-    .locator('details', { hasText: 'Trigger' })
-    .locator('tbody tr td:nth-child(3)');
-  await expect(triggers.filter({ hasText: 'autoscaling' })).toHaveCount(0);
-  await expect(triggers.filter({ hasText: 'rollback' })).toHaveCount(1);
+  const card = changesCard(page);
+  await expect(card.locator('.toggle-group')).toHaveCount(0);
+  await card.locator('summary', { hasText: /\d+ changes?/ }).click();
+  await expect(card.locator('th', { hasText: 'Trigger' })).toHaveCount(0);
+  await expect(card.locator('tbody tr')).toHaveCount(5);
+});
+
+test('the operator Changes card defaults to deliberate and lists everything under All', async ({
+  page,
+  startStatus,
+}) => {
+  await openOperator(page, startStatus);
+  const card = changesCard(page);
+  await card.locator('summary').click();
+  await expect(card.locator('tbody tr')).toHaveCount(5);
+  await expect(card.locator('th', { hasText: 'Trigger' })).toHaveCount(0);
+  await card.getByRole('button', { name: 'All' }).click();
+  await expect(card.locator('tbody tr')).toHaveCount(7);
+  await expect(card.locator('th', { hasText: 'Trigger' })).toBeVisible();
 });
 
 test('the strip readout names the incidents of the hovered cell, with no layout jump', async ({

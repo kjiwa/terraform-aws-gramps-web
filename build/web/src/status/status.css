@@ -547,6 +547,10 @@ table.tbl.dense th:last-child,
 table.tbl.dense td:last-child {
   padding-right: 0;
 }
+table.tbl td.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--gw-text-sm);
+}
 table.tbl td .sub {
   color: var(--gw-muted);
 }

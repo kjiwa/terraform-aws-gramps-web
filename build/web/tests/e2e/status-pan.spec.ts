@@ -139,7 +139,7 @@ test('signed out with public_reliability on: no pan controls render', async ({
 }) => {
   await gotoStatus(page, startStatus, { server: { toggles: ALL_TOGGLES_ON } });
 
-  await expect(page.locator('.card > h3')).toHaveText(['Reliability', 'Incidents']);
+  await expect(page.locator('.card > h3')).toHaveText(['Reliability', 'Incidents', 'Changes']);
   await expect(
     page.locator('.card', { hasText: 'Reliability' }).locator('.window-nav'),
   ).toHaveCount(0);

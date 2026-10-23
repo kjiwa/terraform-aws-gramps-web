@@ -30,7 +30,7 @@ export function expectedSections(t: Toggles): string[] {
  * authenticated card set.
  */
 export function expectedCards(t: Toggles): string[] {
-  const cards = ['Reliability', 'Incidents', 'Deployment'];
+  const cards = ['Reliability', 'Incidents', 'Deployment', 'Changes'];
   if (t.backups) cards.push('Backups');
   cards.push('Host', 'Storage');
   if (t.assistant) cards.push('Assistant');
