@@ -79,7 +79,7 @@ A subsection of the card, shown when the deployment has Spot activity. It follow
 | Caused an outage | Incidents with cause `spot-reclaim` in range. |
 | Share of downtime | Downtime of the `spot-reclaim` incidents over the downtime of every incident in range. |
 
-The authenticated page adds two views that need instance details. The recovery split shows the median capacity wait (outage start to replacement launch) against the median boot-to-serve time (launch to recovery); it appears once at least three incidents carry both timings. The Pools table groups reclaims by the lost instance's type and zone, with the median instance lifetime and the most recent reclaim, folding the tail into an "Other" row.
+The authenticated page adds two views that need instance details. The recovery split shows the median capacity wait (outage start to replacement launch) against the median boot-to-serve time (launch to recovery); it appears once at least three incidents in the selected range carry both timings; until then a note states how many do. The Pools table groups reclaims by the lost instance's type and zone, with the median instance lifetime and the most recent reclaim, folding the tail into an "Other" row.
 
 ## Changes card
 
