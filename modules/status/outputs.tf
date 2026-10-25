@@ -1,9 +1,9 @@
-output "function_name" {
-  description = "Lambda function name. Referenced by the edge module's aws_lambda_permission so CloudFront OAC may invoke the Function URL."
-  value       = aws_lambda_function.status.function_name
+output "origins" {
+  description = "CloudFront origins for the primary distribution: the shell bucket and the status Lambda (modules/edge status_origins)."
+  value       = module.core.origins
 }
 
-output "function_url" {
-  description = "Lambda Function URL (https://<id>.lambda-url.<region>.on.aws/). The edge module strips the scheme/trailing slash and uses the bare hostname as the CloudFront origin domain_name."
-  value       = aws_lambda_function_url.status.function_url
+output "behaviors" {
+  description = "CloudFront ordered cache behaviors for the primary distribution (modules/edge status_behaviors)."
+  value       = module.core.behaviors
 }

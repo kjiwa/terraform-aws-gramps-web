@@ -19,7 +19,7 @@ resource "aws_cloudwatch_metric_alarm" "disk_used" {
   evaluation_periods  = 1
   threshold           = 85
   treat_missing_data  = "ignore"
-  alarm_actions       = [aws_sns_topic.alerts.arn]
+  alarm_actions       = [module.availability.sns_topic_arn]
 
   dynamic "metric_query" {
     for_each = var.volume_metrics_enabled ? [1] : []

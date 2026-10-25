@@ -12,8 +12,8 @@
 #
 #   ./deploy.sh [--root DIR] web
 #                        Run the gramps-web-frontend CodeBuild (build/web:
-#                        the error pages and the status page shell, publish to
-#                        S3, invalidate CloudFront).
+#                        the error pages, publish to S3, invalidate
+#                        CloudFront).
 #
 # Root: --root DIR, or $GRAMPS_WEB_ROOT, is the Terraform root that
 #       instantiates the module (see common.sh). AWS_PROFILE picks the account.

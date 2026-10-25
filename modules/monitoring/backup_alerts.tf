@@ -21,7 +21,7 @@ resource "aws_cloudwatch_event_target" "backup_failure" {
   count     = var.backup_enabled ? 1 : 0
   rule      = aws_cloudwatch_event_rule.backup_failure[0].name
   target_id = "alerts-sns"
-  arn       = aws_sns_topic.alerts.arn
+  arn       = module.availability.sns_topic_arn
 
   # Flatten the event into a one-line human summary instead of mailing raw
   # EventBridge JSON.

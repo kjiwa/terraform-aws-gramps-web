@@ -1,8 +1,0 @@
-{
-  "panel": "assistant",
-  "range": "30d",
-  "end": "2026-06-08T12:00:00Z",
-  "data": {
-    "error": "ThrottlingException: Rate exceeded"
-  }
-}

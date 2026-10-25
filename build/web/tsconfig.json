@@ -9,8 +9,6 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,

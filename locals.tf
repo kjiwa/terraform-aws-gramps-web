@@ -97,10 +97,10 @@ locals {
   )
 
   # Panels the static status shell hides before its first data fetch
-  # resolves (see modules/edge/status_assets.tf).
+  # resolves (config.js, see modules/status/config.js.tpl).
   status_disabled_panels = compact([
     module.storage.backup_vault_name == null ? "backups" : "",
-    var.llm.enabled ? "" : "assistant",
+    var.llm.enabled ? "" : "bedrock",
     var.status.cost ? "" : "cost",
     var.status.host_metrics ? "" : "host_metrics",
   ])

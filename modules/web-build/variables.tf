@@ -29,18 +29,6 @@ variable "errors_bucket_arn" {
   type        = string
 }
 
-variable "status_bucket_name" {
-  description = "Name of the status page shell's S3 bucket (module.edge's status_bucket_name output). Null when the status page is disabled, in which case the build project neither publishes nor gets write access to it."
-  type        = string
-  default     = null
-}
-
-variable "status_bucket_arn" {
-  description = "ARN of the status assets bucket. Null when the status page is disabled."
-  type        = string
-  default     = null
-}
-
 variable "distribution_id" {
   description = "Primary CloudFront distribution ID to invalidate after publish."
   type        = string

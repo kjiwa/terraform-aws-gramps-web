@@ -1,12 +1,3 @@
-locals {
-  # aws_lambda_function_url's function_url output includes the https://
-  # scheme and a trailing slash (https://<id>.lambda-url.<region>.on.aws/);
-  # CloudFront's origin domain_name wants the bare hostname. Harmless to
-  # evaluate when the status feature is off: var.status_function_url is then
-  # "", and replace() on "" is still "".
-  status_lambda_domain = replace(replace(var.status_function_url, "https://", ""), "/", "")
-}
-
 # Static-asset cache policy. The managed CachingOptimized policy (used by
 # /_errors/* and the status shell) has min_ttl=1, which
 # still honors the origin's own Cache-Control header -- and Gramps Web serves
@@ -89,35 +80,27 @@ resource "aws_cloudfront_distribution" "primary" {
     }
   }
 
-  # Status page Lambda Function URL, reached via OAC like the S3 origins
+  # Status page origins (modules/status), reached via OAC like the S3 origins
   # above. Function URLs are HTTPS-only (unlike the EC2 origin's plain-HTTP
-  # custom_origin_config), so this one needs its own protocol config.
+  # custom_origin_config), so the Lambda origin needs its own protocol config.
   dynamic "origin" {
-    for_each = var.status_enabled ? [1] : []
+    for_each = var.status_origins
     content {
-      origin_id                = "status-lambda"
-      domain_name              = local.status_lambda_domain
-      origin_access_control_id = aws_cloudfront_origin_access_control.status[0].id
+      origin_id                = origin.value.origin_id
+      domain_name              = origin.value.domain_name
+      origin_access_control_id = origin.value.origin_access_control_id
 
-      custom_origin_config {
-        http_port                = 80
-        https_port               = 443
-        origin_protocol_policy   = "https-only"
-        origin_ssl_protocols     = ["TLSv1.2"]
-        origin_keepalive_timeout = 5
-        origin_read_timeout      = 30
+      dynamic "custom_origin_config" {
+        for_each = origin.value.custom_origin ? [1] : []
+        content {
+          http_port                = 80
+          https_port               = 443
+          origin_protocol_policy   = "https-only"
+          origin_ssl_protocols     = ["TLSv1.2"]
+          origin_keepalive_timeout = 5
+          origin_read_timeout      = 30
+        }
       }
-    }
-  }
-
-  # Static status-page shell (status_assets.tf), OAC-fronted like errors-s3
-  # above.
-  dynamic "origin" {
-    for_each = var.status_enabled ? [1] : []
-    content {
-      origin_id                = "status-s3"
-      domain_name              = aws_s3_bucket.status_assets[0].bucket_regional_domain_name
-      origin_access_control_id = aws_cloudfront_origin_access_control.status_assets[0].id
     }
   }
 
@@ -173,121 +156,31 @@ resource "aws_cloudfront_distribution" "primary" {
     }
   }
 
-  # Status page: six EXACT path patterns, not a "/_status*" wildcard.
-  # ordered_cache_behavior is first-match-wins by list position, and a wildcard
-  # would match /_status/public/, which lambda/status.py's rstrip("/")
+  # Status page (modules/status): exact path patterns, not a "/_status*"
+  # wildcard. ordered_cache_behavior is first-match-wins by list position, and
+  # a wildcard would match /_status/public/, which the Lambda's rstrip("/")
   # normalization folds into /_status/public, serving the full public payload
   # from an uncached behavior. Anything else under /_status/ falls through to
   # the app origin without invoking the Lambda.
-
-  # Shell: GET /_status and /_status/ both serve the single _status/index.html
-  # object build/web/publish.sh publishes (the built pages/status.html shell,
-  # see build/web/src/status/) regardless of who's asking, so it is cacheable
-  # at the edge -- an exact pattern here can never also match /_status/data
-  # or /_status/public, so caching the shell can never accidentally cache a
-  # gated response. No origin request policy: forwarding Host to an OAC/S3
-  # origin breaks SigV4. The rewrite function maps both patterns to the
-  # bucket's index object.
   dynamic "ordered_cache_behavior" {
-    for_each = var.status_enabled ? toset(["/_status", "/_status/"]) : toset([])
+    for_each = var.status_behaviors
     content {
-      path_pattern           = ordered_cache_behavior.value
-      target_origin_id       = "status-s3"
-      viewer_protocol_policy = "redirect-to-https"
-      allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-      cached_methods         = ["GET", "HEAD"]
-      compress               = true
+      path_pattern             = ordered_cache_behavior.value.path_pattern
+      target_origin_id         = ordered_cache_behavior.value.origin_id
+      viewer_protocol_policy   = "redirect-to-https"
+      allowed_methods          = ["GET", "HEAD", "OPTIONS"]
+      cached_methods           = ["GET", "HEAD"]
+      compress                 = true
+      cache_policy_id          = ordered_cache_behavior.value.cache_policy_id
+      origin_request_policy_id = ordered_cache_behavior.value.origin_request_policy_id
 
-      cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
-
-      function_association {
-        event_type   = "viewer-request"
-        function_arn = aws_cloudfront_function.status_rewrite[0].arn
+      dynamic "function_association" {
+        for_each = ordered_cache_behavior.value.rewrite ? [ordered_cache_behavior.value.function_arn] : []
+        content {
+          event_type   = "viewer-request"
+          function_arn = function_association.value
+        }
       }
-    }
-  }
-
-  # Per-deployment config for the shell, served straight off the same S3
-  # origin as aws_s3_object.status_config (status_assets.tf) writes it to --
-  # not the Lambda, since it is plain per-deployment JSON with no per-caller
-  # variation. Required, not optional: without this exact pattern,
-  # /_status/config.js falls through to the default behavior (ec2-origin),
-  # which has no such route and 404s -- the built shell's <script
-  # src="/_status/config.js"> would then fail to load on every visit.
-  dynamic "ordered_cache_behavior" {
-    for_each = var.status_enabled ? [1] : []
-    content {
-      path_pattern           = "/_status/config.js"
-      target_origin_id       = "status-s3"
-      viewer_protocol_policy = "redirect-to-https"
-      allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-      cached_methods         = ["GET", "HEAD"]
-      compress               = true
-
-      cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
-    }
-  }
-
-  # Gated data route: every response here is per-caller (the X-Gramps-Token
-  # bearer's own role and panel data), so it must never be cached -- and it
-  # is one of the two behaviors (with /_status/series below) that still
-  # need the origin request policy, to carry X-Gramps-Token to the Lambda
-  # at all.
-  dynamic "ordered_cache_behavior" {
-    for_each = var.status_enabled ? [1] : []
-    content {
-      path_pattern           = "/_status/data"
-      target_origin_id       = "status-lambda"
-      viewer_protocol_policy = "redirect-to-https"
-      allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-      cached_methods         = ["GET", "HEAD"]
-      compress               = true
-
-      cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
-      origin_request_policy_id = aws_cloudfront_origin_request_policy.status[0].id
-    }
-  }
-
-  # Gated series route: a panned window is just as caller-specific as
-  # /_status/data (the same X-Gramps-Token gate, see lambda/status.py's
-  # series_response()), so it gets the identical CachingDisabled +
-  # origin-request-policy treatment -- the policy's own query-string
-  # whitelist (status.tf) is what actually lets panel/range/end reach the
-  # Lambda from here.
-  dynamic "ordered_cache_behavior" {
-    for_each = var.status_enabled ? [1] : []
-    content {
-      path_pattern           = "/_status/series"
-      target_origin_id       = "status-lambda"
-      viewer_protocol_policy = "redirect-to-https"
-      allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-      cached_methods         = ["GET", "HEAD"]
-      compress               = true
-
-      cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
-      origin_request_policy_id = aws_cloudfront_origin_request_policy.status[0].id
-    }
-  }
-
-  # Public reliability payload: redacted, unauthenticated JSON
-  # (lambda/status.py's public_response()). No origin request policy,
-  # deliberately -- with no client headers forwarded, X-Gramps-Token can
-  # never reach this route, so nothing caller-specific can influence the
-  # cache key or leak into the cached response. Gated on both toggles:
-  # status_public_reliability without status_enabled is meaningless (there
-  # is no Lambda to route to), which the public_reliability validation in
-  # variables.tf forbids one layer up.
-  dynamic "ordered_cache_behavior" {
-    for_each = (var.status_enabled && var.status_public_reliability) ? [1] : []
-    content {
-      path_pattern           = "/_status/public"
-      target_origin_id       = "status-lambda"
-      viewer_protocol_policy = "redirect-to-https"
-      allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-      cached_methods         = ["GET", "HEAD"]
-      compress               = true
-
-      cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
     }
   }
 

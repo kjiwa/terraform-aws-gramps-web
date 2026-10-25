@@ -2,7 +2,7 @@
 
 A Terraform module that runs [Gramps Web](https://www.grampsweb.org/), the web app for the Gramps genealogy program, on AWS for a few tens of dollars a month. It is an independent project, unofficial and not affiliated with or endorsed by the Gramps project.
 
-The module serves one shape: a single instance with the database on SQLite on an EBS volume and media in S3. The instance is Spot or On-Demand, behind CloudFront, and backs up locally, to a second region, or to a second AWS account. Optional parts are an AI chat assistant on Amazon Bedrock and an operational [status page](docs/status-page.md). Gramps Web supports a single API replica, so there is no multi-instance mode.
+The module serves one shape: a single instance with the database on SQLite on an EBS volume and media in S3. The instance is Spot or On-Demand, behind CloudFront, and backs up locally, to a second region, or to a second AWS account. Optional parts are an AI chat assistant on Amazon Bedrock and an operational [status page](docs/status-page.md), served by [terraform-aws-status-page](https://github.com/kjiwa/terraform-aws-status-page). Gramps Web supports a single API replica, so there is no multi-instance mode.
 
 Required inputs are `primary_domain`, `alert_email`, `repo_url`, and `source_branch`. Everything else has a default; the [module reference](#module-reference) lists them with their costs.
 
@@ -37,7 +37,7 @@ flowchart LR
   statuslambda --> logs
 ```
 
-The availability Lambda probes the site every minute and records outages and their causes. The status Lambda reads that history, so the status page can show uptime and Spot reclaims.
+The status page and the availability recorder come from [terraform-aws-status-page](https://github.com/kjiwa/terraform-aws-status-page). The availability Lambda probes the site every minute and records outages and their causes. The status Lambda reads that history, so the page can show uptime and Spot reclaims.
 
 ## Cost
 
@@ -150,7 +150,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
      -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.1
    ```
 
-   The first apply in a new account can fail while the Auto Scaling group launches its first instance ("Authentication Failure"); re-running the apply succeeded in testing. The status page at `/_status` is off by default: set `status = { enabled = true }` on the module after raising the account's Lambda concurrency quota (see the `status` input).
+   The first apply in a new account can fail while the Auto Scaling group launches its first instance ("Authentication Failure"); re-running the apply succeeded in testing. The status page at `/_status` is off by default: set `status = { enabled = true }` on the module (`min_role` picks who may view it) after raising the account's Lambda concurrency quota (see the `status` input).
 
    The apply creates the hosted zone, then waits on certificate validation. Read the name servers with `terraform output -json name_servers` and set them at your registrar while it waits; re-running an apply that timed out is safe. Confirm the SNS subscription emails.
 
@@ -180,7 +180,7 @@ output "gramps_web" {
 
 | Script | Purpose |
 |---|---|
-| `scripts/deploy.sh` | Build and roll out the app (`gramps`) or the error pages and status shell (`web`). |
+| `scripts/deploy.sh` | Build and roll out the app (`gramps`) or the error pages (`web`). |
 | `scripts/backup.sh` | On-demand snapshot or AWS Backup recovery point, and backup status. |
 | `scripts/restore.sh` | Every restore path, and the pre-lock restore drill. |
 | `scripts/azmove.sh` | Move or re-key the data volume. |

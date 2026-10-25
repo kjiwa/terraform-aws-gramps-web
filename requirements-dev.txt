@@ -1,8 +1,3 @@
-# Dev/test-only dependencies for the two Lambda test suites
-# (modules/status/lambda/test_status.py,
-# modules/monitoring/lambda/test_availability.py). Not shipped:
-# both Lambdas depend on nothing beyond boto3, which is provided by the
-# Lambda runtime itself, so this file never becomes a deploy-time input.
+# Dev/test-only dependency for the status plugin tests
+# (modules/status/tests). Not shipped.
 pytest==9.1.1
-jsonschema==4.26.0
-boto3==1.43.112
