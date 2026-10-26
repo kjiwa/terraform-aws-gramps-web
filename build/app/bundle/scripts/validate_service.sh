@@ -1,7 +1,8 @@
 #!/bin/sh
-# ValidateService: confirm gunicorn is serving on :80. Deliberately gates on
+# ValidateService: confirm gunicorn is serving TLS on :443. Deliberately gates on
 # the web port only, NOT the LLM path: it reaches Bedrock over the network
 # and would make an otherwise-healthy deploy look failed on a transient error.
+# curl -k: the certificate names origin.<domain>, not localhost.
 set -eu
 
 SCRIPT_DIR="$(
@@ -11,7 +12,7 @@ SCRIPT_DIR="$(
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 
-readonly URL="http://localhost/"
+readonly URL="https://localhost/"
 readonly TIMEOUT=240
 
 # Busts the CloudFront cache for the app's own non-hashed static assets
@@ -63,7 +64,7 @@ main() {
   # gets the script killed before it can report and dump `compose ps`.
   _main_deadline=$(($(date +%s) + TIMEOUT))
   while [ "$(date +%s)" -lt "$_main_deadline" ]; do
-    _main_code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 "$URL" || echo 000)"
+    _main_code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 -k "$URL" || echo 000)"
     case "$_main_code" in
     2[0-9][0-9] | 3[0-9][0-9])
       log "Healthy (HTTP $_main_code)."

@@ -4,6 +4,21 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-26
+
+### Changed
+
+- CloudFront reaches the origin over HTTPS (`https-only`) with an ACM exportable public certificate for `origin.<primary_domain>`, issued in the instance's region. The instance exports it at deploy time (`gramps-origin-cert`), gunicorn serves it on port 443, and a daily systemd timer re-exports and restarts the app after ACM renews it. ACM bills 7 USD at issuance and at each renewal; certificates last 198 days.
+- The origin security group's ingress rule moves from port 80 to port 443 (`origin_http_from_cloudfront` becomes `origin_https_from_cloudfront`). The instance policy gains `ACMOriginCertificate`, scoped to the one certificate.
+- The health watchdog accepts either `https://localhost/` or `http://localhost/`, so an older bundle and a newer AMI, or the reverse, do not mark the instance Unhealthy.
+- `examples/minimal` and the cross-account backup guide use terraform-aws-keel v0.1.2.
+
+### Upgrade
+
+1. Rebuild the AMI from the `release-1.4` branch, pin the new IDs in `ami_ids`, and let the instance refresh finish. The previous AMI's watchdog probes only `http://localhost/` and would mark the instance Unhealthy every ten minutes once the app serves TLS.
+2. Run `terraform apply`. The site shows the maintenance page from this point, because CloudFront now requires HTTPS from an origin still serving HTTP.
+3. Run `scripts/deploy.sh gramps` to roll the new bundle. The maintenance page clears when the deploy passes.
+
 ## [1.3.0] - 2026-10-26
 
 ### Changed

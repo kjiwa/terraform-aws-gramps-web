@@ -53,7 +53,7 @@ resource "aws_cloudfront_distribution" "primary" {
     custom_origin_config {
       http_port                = 80
       https_port               = 443
-      origin_protocol_policy   = "http-only"
+      origin_protocol_policy   = "https-only"
       origin_ssl_protocols     = ["TLSv1.2"]
       origin_keepalive_timeout = 5
       origin_read_timeout      = 60
@@ -81,8 +81,8 @@ resource "aws_cloudfront_distribution" "primary" {
   }
 
   # Status page origins (modules/status), reached via OAC like the S3 origins
-  # above. Function URLs are HTTPS-only (unlike the EC2 origin's plain-HTTP
-  # custom_origin_config), so the Lambda origin needs its own protocol config.
+  # above. A Lambda Function URL is a custom origin, so the status origin needs its
+  # own protocol config.
   dynamic "origin" {
     for_each = var.status_origins
     content {

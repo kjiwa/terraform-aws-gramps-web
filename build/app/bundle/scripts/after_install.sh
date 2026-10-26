@@ -123,12 +123,24 @@ bootstrap_tree_metadata() {
   printf 'sqlite' >"$_bootstrap_tree_metadata_tree_dir/database.txt"
 }
 
+# Installs the origin certificate exporter and its daily refresh timer, then
+# exports once so the TLS files exist before ApplicationStart mounts them.
+install_origin_cert() {
+  log "Installing the origin certificate exporter..."
+  install -m 0755 "$SCRIPT_DIR/origin_cert.sh" /usr/local/bin/gramps-origin-cert
+  install -m 0644 "$SCRIPT_DIR/origin-cert.service" "$SCRIPT_DIR/origin-cert.timer" /etc/systemd/system/
+  systemctl daemon-reload
+  systemctl enable --now origin-cert.timer
+  /usr/local/bin/gramps-origin-cert
+}
+
 main() {
   load_instance_env
   _main_image="$(image_ref)"
   write_env_file "$_main_image"
   bootstrap_tree_metadata
   render_frontend_config
+  install_origin_cert
   pull_image "$_main_image"
 }
 

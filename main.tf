@@ -44,6 +44,7 @@ module "compute" {
   cpu_credits                = var.cpu_credits
   status_host_metrics        = var.status.host_metrics
   status_volume_metrics      = var.status.volume_metrics
+  origin_certificate_arn     = module.edge.origin_certificate_arn
 
   api      = var.api
   frontend = var.frontend

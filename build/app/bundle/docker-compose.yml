@@ -18,6 +18,9 @@ x-gramps-volumes: &gramps-volumes
   # from SSM. Only grampsweb serves the frontend; celery shares this anchor
   # and ignores the file.
   - ./config.js:/app/static/config.js:ro
+  # Origin TLS certificate and key (scripts/origin_cert.sh). Only grampsweb
+  # serves TLS; celery shares this anchor and ignores the directory.
+  - /etc/gramps/tls:/etc/gramps/tls:ro
 
 # app.env: the whole non-secret GRAMPSWEB_* env, rendered by Terraform
 # (modules/compute/ssm.tf's gramps_env parameter) and fetched
@@ -57,10 +60,12 @@ services:
     restart: unless-stopped
     logging: *logging
     ports:
-      - "80:5000"
+      - "443:5000"
     environment:
       AWS_DEFAULT_REGION: "${REGION}"
       GUNICORN_NUM_WORKERS: "1"
+      # Gunicorn merges this env into the image's own CMD.
+      GUNICORN_CMD_ARGS: "--certfile=/etc/gramps/tls/fullchain.pem --keyfile=/etc/gramps/tls/privkey.pem"
     env_file: *gramps-env-files
     volumes: *gramps-volumes
     depends_on:

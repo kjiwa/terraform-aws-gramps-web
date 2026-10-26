@@ -59,14 +59,14 @@ resource "aws_security_group" "origin" {
   }
 }
 
-# Port 80 only: the CloudFront custom origin config for this EC2 origin uses
-# origin_protocol_policy = "http-only" (modules/edge/cloudfront_primary.tf).
-resource "aws_vpc_security_group_ingress_rule" "origin_http_from_cloudfront" {
+# Port 443 only: the CloudFront custom origin config for this EC2 origin uses
+# origin_protocol_policy = "https-only" (modules/edge/cloudfront_primary.tf).
+resource "aws_vpc_security_group_ingress_rule" "origin_https_from_cloudfront" {
   security_group_id = aws_security_group.origin.id
-  description       = "HTTP from CloudFront origin-facing IPs."
+  description       = "HTTPS from CloudFront origin-facing IPs."
   ip_protocol       = "tcp"
-  from_port         = 80
-  to_port           = 80
+  from_port         = 443
+  to_port           = 443
   prefix_list_id    = data.aws_ec2_managed_prefix_list.cloudfront_origin.id
 }
 

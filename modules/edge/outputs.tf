@@ -17,3 +17,8 @@ output "errors_bucket_arn" {
   description = "ARN of the error-pages bucket. Read by the web-build module's publish policy."
   value       = aws_s3_bucket.errors.arn
 }
+
+output "origin_certificate_arn" {
+  description = "ARN of the validated, exportable ACM certificate for origin.<primary_domain>, in the module's default region. The instance exports it at deploy time."
+  value       = aws_acm_certificate_validation.origin.certificate_arn
+}

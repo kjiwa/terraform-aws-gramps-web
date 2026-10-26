@@ -24,7 +24,9 @@
 # Installed by build/ami/install.sh as /usr/local/bin/gramps-health-watchdog.
 set -eu
 
-readonly URL="http://localhost/"
+# Either scheme counts: the app bundle (release branch) and this baked AMI
+# version independently, and a bundle serves HTTP or HTTPS.
+readonly URLS="https://localhost/ http://localhost/"
 readonly COUNT_FILE="/run/gramps-health-failcount"
 readonly METRICS_STAMP="/run/gramps-host-metrics-stamp"
 readonly INSTANCE_ENV="/etc/gramps/instance.env"
@@ -44,11 +46,14 @@ load_env() {
   . "$INSTANCE_ENV"
 }
 
+# curl -k: the certificate names origin.<domain>, not localhost.
 app_healthy() {
-  _app_healthy_code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 "$URL" || echo 000)"
-  case "$_app_healthy_code" in
-  2[0-9][0-9] | 3[0-9][0-9]) return 0 ;;
-  esac
+  for _app_healthy_url in $URLS; do
+    _app_healthy_code="$(curl -k -o /dev/null -s -w '%{http_code}' --max-time 5 "$_app_healthy_url" || echo 000)"
+    case "$_app_healthy_code" in
+    2[0-9][0-9] | 3[0-9][0-9]) return 0 ;;
+    esac
+  done
   log "Local check failed (HTTP $_app_healthy_code)."
   return 1
 }
