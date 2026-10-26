@@ -89,6 +89,13 @@ run "primary_distribution_reaches_the_origin_over_https" {
     ])
     error_message = "The ec2-origin must use https-only."
   }
+
+  # The origin certificate names origin.<primary_domain>; a forwarded viewer
+  # Host would be checked against it instead and fail the handshake.
+  assert {
+    condition     = aws_cloudfront_distribution.primary.default_cache_behavior[0].origin_request_policy_id == "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+    error_message = "The default behavior must use AllViewerExceptHostHeader."
+  }
 }
 
 run "redirect_distribution_reaches_the_origin_over_https" {

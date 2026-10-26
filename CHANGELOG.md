@@ -10,6 +10,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 - CloudFront reaches the origin over HTTPS (`https-only`) with an ACM exportable public certificate for `origin.<primary_domain>`, issued in the instance's region. The instance exports it at deploy time (`gramps-origin-cert`), gunicorn serves it on port 443, and a daily systemd timer re-exports and restarts the app after ACM renews it. ACM bills 7 USD at issuance and at each renewal; certificates last 198 days.
 - The origin security group's ingress rule moves from port 80 to port 443 (`origin_http_from_cloudfront` becomes `origin_https_from_cloudfront`). The instance policy gains `ACMOriginCertificate`, scoped to the one certificate.
+- The primary behavior's origin request policy is AllViewerExceptHostHeader (was AllViewer). With Host forwarded, CloudFront would check the origin certificate against the viewer's hostname instead of `origin.<primary_domain>`. The app builds its links from `BASE_URL`, so it sees `origin.<primary_domain>` as its Host.
 - The health watchdog accepts either `https://localhost/` or `http://localhost/`, so an older bundle and a newer AMI, or the reverse, do not mark the instance Unhealthy.
 - `examples/minimal` and the cross-account backup guide use terraform-aws-keel v0.1.2.
 

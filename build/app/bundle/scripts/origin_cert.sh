@@ -52,6 +52,8 @@ is_current() {
 export_certificate() {
   openssl rand -hex 16 >"$2/passphrase"
   printf '{"CertificateArn":"%s","Passphrase":"%s"}' "$1" "$(cat "$2/passphrase")" >"$2/request.json"
+  # The backticks are JMESPath literal syntax, not shell expansion.
+  # shellcheck disable=SC2016
   aws acm export-certificate \
     --cli-input-json "file://$2/request.json" \
     --cli-binary-format raw-in-base64-out \

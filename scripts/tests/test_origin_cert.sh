@@ -30,7 +30,7 @@ cat >"$WORK/bin/aws" <<'STUB'
 #!/bin/sh
 echo "aws $*" >>"$STUB_LOG"
 case "$1 $2" in
-"ssm get-parameter") echo "arn:aws:acm:us-east-2:111111111111:certificate/abc"; echo "$*" >"$WORK/ssm.args" ;;
+"ssm get-parameter") echo "arn:aws:acm:us-east-2:123456789012:certificate/abc"; echo "$*" >"$WORK/ssm.args" ;;
 "acm describe-certificate") echo "$STUB_SERIAL" ;;
 "acm export-certificate")
   _file="${4#file://}"
