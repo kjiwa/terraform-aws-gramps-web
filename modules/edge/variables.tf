@@ -48,27 +48,26 @@ variable "additional_cache_behaviors" {
   default = []
 }
 
-variable "status_enabled" {
-  description = "If true, provision the authenticated /_status operational status page: its OAC, origin request policy, Lambda permissions, and the /_status origin + behaviors on the primary distribution. If false none of those exist and /_status* falls through to the app origin. The Lambda itself lives in modules/status, applied by the root alongside this module."
-  type        = bool
+variable "status_origins" {
+  description = "Origins of the status page (modules/status origins output), attached to the primary distribution. An origin with custom_origin gets an HTTPS-only custom origin config, since Function URLs are HTTPS-only."
+  type = list(object({
+    origin_id                = string
+    domain_name              = string
+    origin_access_control_id = string
+    custom_origin            = bool
+  }))
+  default = []
 }
 
-variable "status_function_name" {
-  description = "Name of the status Lambda (modules/status). Named here so aws_lambda_permission can grant CloudFront's OAC invoke rights on it; ignored when status_enabled is false."
-  type        = string
-}
-
-variable "status_function_url" {
-  description = "Function URL of the status Lambda (modules/status), e.g. https://<id>.lambda-url.<region>.on.aws/. The scheme and trailing slash are stripped locally to get the bare hostname CloudFront's origin domain_name requires; ignored when status_enabled is false."
-  type        = string
-}
-
-variable "status_public_reliability" {
-  description = "If true (and status_enabled), also provision the /_status/public CloudFront behavior: CachingOptimized, no origin request policy (no client headers reach it, so X-Gramps-Token can never land on a cached response). If false, the behavior doesn't exist at all, so the request falls through to the app (EC2) origin and 404s there, never reaching the status Lambda. See public_reliability in the status variable, variables.tf, for the full feature description."
-  type        = bool
-}
-
-variable "status_disabled_panels" {
-  description = "Panel keys (backups, assistant, cost, host_metrics) the static status shell should hide before its first data fetch resolves, matching status.py's own data-panel keys. Written into aws_s3_object.status_config's config.js (status_assets.tf); ignored when status_enabled is false."
-  type        = list(string)
+variable "status_behaviors" {
+  description = "Ordered cache behaviors of the status page (modules/status behaviors output), placed after additional_cache_behaviors. Each serves GET, HEAD and OPTIONS over HTTPS, compressed; function_arn attaches a viewer-request function when rewrite is true. Exact path patterns, never a wildcard: first match wins."
+  type = list(object({
+    path_pattern             = string
+    origin_id                = string
+    cache_policy_id          = string
+    origin_request_policy_id = string
+    function_arn             = string
+    rewrite                  = bool
+  }))
+  default = []
 }

@@ -83,11 +83,8 @@ module "edge" {
   eip_public_ip    = module.compute.eip_public_ip
   zone_ids         = local.zone_ids
 
-  status_enabled            = var.status.enabled
-  status_function_name      = var.status.enabled ? module.status[0].function_name : ""
-  status_function_url       = var.status.enabled ? module.status[0].function_url : ""
-  status_public_reliability = var.status.public_reliability
-  status_disabled_panels    = local.status_disabled_panels
+  status_origins   = var.status.enabled ? module.status[0].origins : []
+  status_behaviors = var.status.enabled ? module.status[0].behaviors : []
 
   additional_origins         = var.additional_origins
   additional_cache_behaviors = var.additional_cache_behaviors
@@ -137,6 +134,11 @@ module "status" {
   host_metrics_enabled   = var.status.host_metrics
   volume_metrics_enabled = var.status.volume_metrics
   public_reliability     = var.status.public_reliability
+
+  distribution_arn             = module.edge.primary_distribution_arn
+  episodes_log_group           = module.monitoring.episodes_log_group_name
+  spot_interruptions_log_group = module.monitoring.spot_interruptions_log_group_name
+  disabled_panels              = local.status_disabled_panels
 }
 
 # Shared GitHub CodeConnections app used by the web build, the app
@@ -148,9 +150,9 @@ resource "aws_codeconnections_connection" "github" {
   provider_type = "GitHub"
 }
 
-# First-party frontend (build/web): the error pages and the status shell.
-# Unconditional, unlike status above: the error pages exist regardless of
-# which optional features are on.
+# First-party frontend (build/web): the error pages. Unconditional, unlike
+# status above: the error pages exist regardless of which optional features
+# are on.
 module "web_build" {
   source = "./modules/web-build"
 
@@ -161,8 +163,6 @@ module "web_build" {
   status_public_page = var.status.enabled && var.status.public_reliability
   errors_bucket_name = module.edge.errors_bucket_name
   errors_bucket_arn  = module.edge.errors_bucket_arn
-  status_bucket_name = module.edge.status_bucket_name
-  status_bucket_arn  = module.edge.status_bucket_arn
   distribution_id    = module.edge.primary_distribution_id
   codebuild_image    = local.codebuild_image
 }

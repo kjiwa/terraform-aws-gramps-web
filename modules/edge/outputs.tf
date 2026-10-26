@@ -17,13 +17,3 @@ output "errors_bucket_arn" {
   description = "ARN of the error-pages bucket. Read by the web-build module's publish policy."
   value       = aws_s3_bucket.errors.arn
 }
-
-output "status_bucket_name" {
-  description = "S3 bucket holding the static status-page shell. Read by the web-build module's publish policy (build/web/src/status/). Null when the status page is disabled."
-  value       = one(aws_s3_bucket.status_assets[*].bucket)
-}
-
-output "status_bucket_arn" {
-  description = "ARN of the status-assets bucket. Null when the status page is disabled."
-  value       = one(aws_s3_bucket.status_assets[*].arn)
-}

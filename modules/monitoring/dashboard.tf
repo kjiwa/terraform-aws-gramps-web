@@ -1,3 +1,5 @@
+data "aws_region" "current" {}
+
 # The "what is Spot costing me" view. Availability % is just AVG(SiteUp) over
 # whatever time range the dashboard is set to (default 30 days).
 
@@ -67,7 +69,7 @@ resource "aws_cloudwatch_dashboard" "availability" {
           title  = "Spot interruptions per week"
           region = data.aws_region.current.region
           view   = "bar"
-          query  = "SOURCE '${aws_cloudwatch_log_group.spot_interruptions.name}' | stats count(*) as interruptions by bin(1w)"
+          query  = "SOURCE '${module.availability.spot_interruptions_log_group_name}' | stats count(*) as interruptions by bin(1w)"
         }
       },
       {
@@ -80,7 +82,7 @@ resource "aws_cloudwatch_dashboard" "availability" {
           title  = "Recent outage episodes"
           region = data.aws_region.current.region
           view   = "table"
-          query  = "SOURCE '${aws_cloudwatch_log_group.episodes.name}' | fields @timestamp, cause, duration_s, new_instance.type, new_instance.az | sort @timestamp desc | limit 20"
+          query  = "SOURCE '${module.availability.episodes_log_group_name}' | fields @timestamp, cause, duration_s, new_instance.type, new_instance.az | sort @timestamp desc | limit 20"
         }
       },
     ]
@@ -92,7 +94,7 @@ resource "aws_cloudwatch_dashboard" "availability" {
 
 resource "aws_cloudwatch_query_definition" "downtime_by_cause" {
   name            = "gramps-web/downtime-by-cause"
-  log_group_names = [aws_cloudwatch_log_group.episodes.name]
+  log_group_names = [module.availability.episodes_log_group_name]
   query_string    = <<-EOT
     fields cause, duration_s
     | stats count(*) as outages, sum(duration_s) / 60 as downtime_minutes, avg(duration_s) / 60 as avg_minutes, max(duration_s) / 60 as worst_minutes by cause
@@ -101,7 +103,7 @@ resource "aws_cloudwatch_query_definition" "downtime_by_cause" {
 
 resource "aws_cloudwatch_query_definition" "episodes" {
   name            = "gramps-web/outage-episodes"
-  log_group_names = [aws_cloudwatch_log_group.episodes.name]
+  log_group_names = [module.availability.episodes_log_group_name]
   query_string    = <<-EOT
     fields started, ended, duration_s, cause, old_instance.type, new_instance.type, new_instance.az
     | sort @timestamp desc
@@ -110,7 +112,7 @@ resource "aws_cloudwatch_query_definition" "episodes" {
 
 resource "aws_cloudwatch_query_definition" "interruptions_per_week" {
   name            = "gramps-web/spot-interruptions-per-week"
-  log_group_names = [aws_cloudwatch_log_group.spot_interruptions.name]
+  log_group_names = [module.availability.spot_interruptions_log_group_name]
   query_string    = <<-EOT
     stats count(*) as interruptions by bin(1w)
   EOT

@@ -220,7 +220,7 @@ run "status_disabled_panels_follow_the_toggles" {
   }
 
   assert {
-    condition     = !contains(local.status_disabled_panels, "host_metrics") && contains(local.status_disabled_panels, "cost") && contains(local.status_disabled_panels, "assistant")
+    condition     = !contains(local.status_disabled_panels, "host_metrics") && contains(local.status_disabled_panels, "cost") && contains(local.status_disabled_panels, "bedrock")
     error_message = "Only panels whose feature is off may be hidden."
   }
 }
@@ -248,6 +248,42 @@ run "seam_inputs_reach_the_primary_distribution" {
   assert {
     condition     = var.additional_cache_behaviors[0].cache_policy_id == "658327ea-f89d-4fab-a63d-7e88639e58f6"
     error_message = "Behaviors must default to the managed CachingOptimized policy."
+  }
+}
+
+run "status_enabled_attaches_its_routes_to_the_distribution" {
+  command = plan
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+  variables {
+    status = { enabled = true, public_reliability = true }
+  }
+
+  assert {
+    condition     = [for b in module.status[0].behaviors : b.path_pattern] == ["/_status", "/_status/", "/_status/config.js", "/_status/data", "/_status/series", "/_status/public"]
+    error_message = "The status page must route its shell, config, data, series and public paths, in that order."
+  }
+  assert {
+    condition     = toset([for o in module.status[0].origins : o.origin_id]) == toset(["status-lambda", "status-s3"])
+    error_message = "The status page must supply a shell origin and a Lambda origin."
+  }
+}
+
+run "status_disabled_leaves_the_distribution_alone" {
+  command = plan
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+  variables {
+    status = { enabled = false }
+  }
+
+  assert {
+    condition     = length(module.status) == 0
+    error_message = "A disabled status page must not instantiate its module."
   }
 }
 

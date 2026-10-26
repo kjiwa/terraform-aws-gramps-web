@@ -53,18 +53,6 @@ data "aws_iam_policy_document" "web_build" {
     resources = [var.errors_bucket_arn, "${var.errors_bucket_arn}/*"]
   }
 
-  # publish_status uses `cp`, not `sync`: no ListBucket, and the grant names
-  # _status/index.html exactly.
-  dynamic "statement" {
-    for_each = var.status_bucket_arn != null ? [var.status_bucket_arn] : []
-    content {
-      sid       = "StatusIndexWrite"
-      effect    = "Allow"
-      actions   = ["s3:PutObject"]
-      resources = ["${statement.value}/_status/index.html"]
-    }
-  }
-
   statement {
     sid       = "Invalidate"
     effect    = "Allow"

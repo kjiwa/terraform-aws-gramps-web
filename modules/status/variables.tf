@@ -1,10 +1,10 @@
 variable "primary_domain" {
-  description = "Apex domain serving the site. The Lambda calls https://<primary_domain>/api/users/-/ to resolve the caller's Gramps Web role; the page is unusable while that origin is down, by design (see lambda/status.py)."
+  description = "Apex domain serving the site. The plugin calls https://<primary_domain>/api/users/-/ to resolve the caller's Gramps Web role; the gated routes are unusable while that origin is down, by design (see plugin/plugin.py). Also names the shell bucket, <primary_domain with dots as dashes>-status."
   type        = string
 }
 
 variable "min_role" {
-  description = "Lowest Gramps Web role (guest, member, contributor, editor, owner, admin) allowed to view /_status/data, or nobody to keep the page deployed but locked to everyone. Compared against the role int GET /api/users/-/ returns for the caller's token; see ROLES in lambda/status.py."
+  description = "Lowest Gramps Web role (guest, member, contributor, editor, owner, admin) allowed to view /_status/data, or nobody to keep the page deployed but locked to everyone. Compared against the role int GET /api/users/-/ returns for the caller's token; see ROLES in plugin/plugin.py."
   type        = string
   validation {
     condition     = contains(["guest", "member", "contributor", "editor", "owner", "admin", "nobody"], var.min_role)
@@ -33,7 +33,7 @@ variable "deliberate_deployment_creators" {
 }
 
 variable "codepipeline_name" {
-  description = "CodePipeline name. Read for the deployment panel, to join each CodeDeploy deployment to the commit that triggered it (see ListActionExecutions in lambda/status.py)."
+  description = "CodePipeline name. Read for the deployment panel, to join each CodeDeploy deployment to the commit that triggered it (see ListActionExecutions in the core's status.py)."
   type        = string
 }
 
@@ -111,7 +111,7 @@ variable "backup_copy_vault_arn" {
 }
 
 variable "backup_dest_reader_role_arn" {
-  description = "ARN of the backup account's gramps-web-vault-reader role, granting DescribeBackupVault on the destination vault only. Empty unless backup.mode = cross_account, in which case the backups panel assumes this role to read the destination vault's lock state live; for cross_region the destination vault is in this same account and is read directly instead (see the DescribeBackupVault statement in iam.tf)."
+  description = "ARN of the backup account's gramps-web-vault-reader role, granting DescribeBackupVault on the destination vault only. Empty unless backup.mode = cross_account, in which case the backups panel assumes this role to read the destination vault's lock state live; for cross_region the destination vault is in this same account and is read directly instead (see the DescribeBackupVault statement in the core's iam.tf)."
   type        = string
   default     = ""
 }
@@ -123,7 +123,7 @@ variable "spot_enabled" {
 }
 
 variable "llm" {
-  description = "AI chat assistant runtime config, resolved (region already picks the override vs the module's region). See the llm variable in variables.tf for the full field-by-field rationale. enabled: if true, the assistant panel reports 30-day Bedrock InputTokenCount+OutputTokenCount from region; if false, the panel and its IAM grant do not exist. model_id/max_requests/max_tokens/max_context_length are shown as config rows on the Assistant panel; model_id is reported from config rather than discovered from CloudWatch (see the comment on assistant() in lambda/status.py for why a per-model breakdown isn't available)."
+  description = "AI chat assistant runtime config, resolved (region already picks the override vs the module's region). See the llm variable in variables.tf for the full field-by-field rationale. enabled: if true, the bedrock panel reports 30-day Bedrock InputTokenCount+OutputTokenCount from region; if false, the panel and its IAM grant do not exist. model_id/max_requests/max_tokens/max_context_length are shown as config rows on the Bedrock panel; model_id is reported from config rather than discovered from CloudWatch (a per-model breakdown isn't available from CloudWatch)."
   type = object({
     enabled            = bool
     model_id           = string
@@ -171,7 +171,27 @@ variable "volume_metrics_enabled" {
 }
 
 variable "public_reliability" {
-  description = "If true, GET /_status/public serves the reliability and incidents panels, redacted and unauthenticated, from a warm cache (PUBLIC_CACHE_TTL_S in lambda/status.py). If false, that route 404s regardless of what CloudFront routes to it. See public_reliability in the status variable, variables.tf, for the full feature description."
+  description = "If true, GET /_status/public serves the reliability and incidents panels, redacted and unauthenticated, from a warm cache (PUBLIC_CACHE_TTL_S in the core's status.py). If false, that route 404s regardless of what CloudFront routes to it. See public_reliability in the status variable, variables.tf, for the full feature description."
   type        = bool
   default     = false
+}
+
+variable "distribution_arn" {
+  description = "ARN of the primary CloudFront distribution, allowed to read the shell bucket and invoke the Lambda."
+  type        = string
+}
+
+variable "episodes_log_group" {
+  description = "Name of the availability recorder's episodes log group (modules/monitoring output)."
+  type        = string
+}
+
+variable "spot_interruptions_log_group" {
+  description = "Name of the availability recorder's Spot interruption log group (modules/monitoring output)."
+  type        = string
+}
+
+variable "disabled_panels" {
+  description = "Panel keys the shell hides before its first data fetch resolves, written into config.js."
+  type        = list(string)
 }

@@ -1,14 +1,9 @@
-# Builds the first-party frontend (build/web -- the error pages and the
-# status shell) in CodeBuild and publishes straight to
-# S3, then invalidates the primary distribution. Manual-trigger only (no
-# webhook): these are static pages and rebuilds are intentional. The build logic stays in build/web/; this only
-# stands up the project, source auth, and a scoped role so the publish runs
-# off a workstation under least privilege.
-#
-# IAM/env scope tracks which of build/web's pages actually have live
-# CloudFront routing: it can write the errors bucket unconditionally, and the
-# status bucket when status_bucket_arn is non-null (null when the status
-# page is disabled).
+# Builds the first-party frontend (build/web -- the error pages) in CodeBuild
+# and publishes straight to S3, then invalidates the primary distribution.
+# Manual-trigger only (no webhook): these are static pages and rebuilds are
+# intentional. The build logic stays in build/web/; this only stands up the
+# project, source auth, and a scoped role so the publish runs off a
+# workstation under least privilege.
 
 data "aws_caller_identity" "current" {}
 
@@ -22,9 +17,6 @@ locals {
     SITE_TITLE         = var.site_title
     STATUS_PUBLIC_PAGE = tostring(var.status_public_page)
     ERRORS_BUCKET_NAME = var.errors_bucket_name
-    # coalesce() rejects "" as a fallback (it counts as absent, same as null),
-    # so a plain null check is what turns "disabled" into an empty env var.
-    STATUS_BUCKET_NAME = var.status_bucket_name != null ? var.status_bucket_name : ""
     DISTRIBUTION_ID    = var.distribution_id
   }
 }

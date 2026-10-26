@@ -16,8 +16,7 @@ locals {
   # are the same three codes, kept as an independent one-line list there --
   # this is infra's "which codes get a route," pages.ts's is copy's "which
   # codes get content," and neither needs the other's shape. Adding a fourth
-  # code touches both, same as adding a fifth RANGES entry touches both
-  # status.py and status.html.
+  # code touches both.
   error_codes = toset(["502", "503", "504"])
 }
 
@@ -46,26 +45,14 @@ resource "aws_cloudfront_origin_access_control" "errors" {
   signing_protocol                  = "sigv4"
 }
 
-# Shared by the errors and status-assets (status_assets.tf) buckets -- both
-# are private, OAC-fronted S3 origins on the same primary distribution, so the
-# same two statements apply to each, keyed by bucket.
-locals {
-  cloudfront_read_buckets = merge(
-    { errors = aws_s3_bucket.errors.arn },
-    var.status_enabled ? { status = aws_s3_bucket.status_assets[0].arn } : {}
-  )
-}
-
 # Scoped to the CloudFront service principal AND this distribution's ARN, so
 # block_public_policy accepts the policy.
 data "aws_iam_policy_document" "cloudfront_read" {
-  for_each = local.cloudfront_read_buckets
-
   statement {
     sid       = "AllowCloudFrontRead"
     effect    = "Allow"
     actions   = ["s3:GetObject"]
-    resources = ["${each.value}/*"]
+    resources = ["${aws_s3_bucket.errors.arn}/*"]
 
     principals {
       type        = "Service"
@@ -84,7 +71,7 @@ data "aws_iam_policy_document" "cloudfront_read" {
     sid       = "DenyInsecureTransport"
     effect    = "Deny"
     actions   = ["s3:*"]
-    resources = [each.value, "${each.value}/*"]
+    resources = [aws_s3_bucket.errors.arn, "${aws_s3_bucket.errors.arn}/*"]
     principals {
       type        = "*"
       identifiers = ["*"]
@@ -99,5 +86,5 @@ data "aws_iam_policy_document" "cloudfront_read" {
 
 resource "aws_s3_bucket_policy" "errors" {
   bucket = aws_s3_bucket.errors.id
-  policy = data.aws_iam_policy_document.cloudfront_read["errors"].json
+  policy = data.aws_iam_policy_document.cloudfront_read.json
 }

@@ -1,117 +1,65 @@
-# Status Lambda behind a Function URL that CloudFront reaches via OAC (see
-# edge/status.tf for that half). The `status` variable in variables.tf says what
-# the page shows, who can see it, and what public_reliability does;
-# lambda/status.py's docstring covers the code structure. Gramps Web's own
-# users and roles are the sole identity source for the gated routes:
-# lambda/status.py forwards the caller's token to GET /api/users/-/ on the site.
+# Gramps Web layer over the status-page core: maps this module's inputs onto
+# the core's objects and supplies plugin/plugin.py (role-API auth, release
+# facts) and config.js.tpl. The root attaches the origins and behaviors
+# outputs to the primary distribution in modules/edge.
+module "core" {
+  source = "git::https://github.com/kjiwa/terraform-aws-status-page.git//modules/status?ref=v0.1.1"
 
-data "aws_region" "current" {}
-data "aws_caller_identity" "current" {}
+  name_prefix      = "gramps-web"
+  path_prefix      = "/_status"
+  bucket_name      = "${replace(var.primary_domain, ".", "-")}-status"
+  auth_header      = "X-Gramps-Token"
+  distribution_arn = var.distribution_arn
+  asg_name         = var.asg_name
 
-locals {
-  # The same literals the monitoring module uses for its episode log group and
-  # streams (lambda.tf there), which exports no outputs for them.
-  episodes_log_group  = "/gramps-web/availability-episodes"
-  episodes_log_stream = "episodes"
-  changes_log_stream  = "changes"
+  episodes_log_group           = var.episodes_log_group
+  spot_interruptions_log_group = var.spot_interruptions_log_group
+  siteup_metric_namespace      = "GrampsWeb"
 
-  # The EventBridge target log group of the Spot interruption rule
-  # (monitoring/spot_interruption.tf), one JSON event per warning.
-  spot_interruptions_log_group = "/aws/events/gramps-web-spot-interruptions"
-}
+  source_repo         = var.source_repo
+  spot_enabled        = var.spot_enabled
+  public_reliability  = var.public_reliability
+  ebs_volume_id       = var.ebs_volume_id
+  storage_bucket_name = var.media_bucket_name
 
-# output_path lives outside lambda/ to avoid recursive packaging on re-apply.
-# source_file packages only the runtime handler.
-data "archive_file" "status" {
-  type        = "zip"
-  output_path = "${path.module}/dist/status.zip"
-  source_file = "${path.module}/lambda/status.py"
-}
-
-resource "aws_lambda_function" "status" {
-  function_name    = "gramps-web-status"
-  role             = aws_iam_role.status.arn
-  runtime          = "python3.13"
-  architectures    = ["arm64"]
-  handler          = "status.handler"
-  filename         = data.archive_file.status.output_path
-  source_code_hash = data.archive_file.status.output_base64sha256
-  # Lambda scales vCPU with memory; the panel fan-out in lambda/status.py is
-  # CPU-bound waiting on network I/O across threads, so roughly 4x the CPU at
-  # 512 MB cuts wall time by close to the same factor, leaving GB-seconds (and
-  # so cost) close to a wash while cold-start import time drops too.
-  memory_size = 512
-  timeout     = 20
-
-  # Capped well below the account's concurrency pool: it shares that pool with
-  # the availability canary (modules/monitoring), the sole producer of the SiteUp
-  # metric, so a flood here could throttle the canary and corrupt uptime. Request
-  # caches in lambda/status.py and CloudFront caching in
-  # edge/cloudfront_primary.tf are the primary abuse bound.
-  reserved_concurrent_executions = 10
-
-  # CloudFront can invoke within seconds of creation; without this the runtime
-  # auto-creates the log group first and Terraform's create conflicts.
-  depends_on = [aws_cloudwatch_log_group.status_lambda]
-
-  environment {
-    variables = {
-      SITE_URL                       = "https://${var.primary_domain}"
-      MIN_ROLE                       = var.min_role
-      ASG_NAME                       = var.asg_name
-      CODEDEPLOY_APP_NAME            = var.codedeploy_app_name
-      CODEDEPLOY_DEPLOYMENT_GROUP    = var.codedeploy_deployment_group_name
-      DELIBERATE_DEPLOYMENT_CREATORS = join(",", var.deliberate_deployment_creators)
-      CODEPIPELINE_NAME              = var.codepipeline_name
-      SOURCE_REPO                    = var.source_repo
-      ECR_REPO_NAME                  = var.ecr_repository_name
-      EBS_VOLUME_ID                  = var.ebs_volume_id
-      MEDIA_BUCKET_NAME              = var.media_bucket_name
-      BACKUP_VAULT_NAME              = var.backup_vault_name
-      BACKUP_MODE                    = var.backup_mode
-      BACKUP_SCHEDULE                = var.backup_schedule
-      BACKUP_RETENTION_DAYS          = tostring(var.backup_retention_days)
-      BACKUP_RESOURCE_COUNT          = tostring(var.backup_resource_count)
-      BACKUP_REMOTE_RETENTION_DAYS   = tostring(var.backup_remote_retention_days)
-      BACKUP_REGION                  = var.backup_region
-      BACKUP_COPY_VAULT_ARN          = var.backup_copy_vault_arn
-      BACKUP_DEST_READER_ROLE_ARN    = var.backup_dest_reader_role_arn
-      SPOT_ENABLED                   = var.spot_enabled ? "true" : "false"
-      LLM_ENABLED                    = var.llm.enabled ? "true" : "false"
-      LLM_REGION                     = var.llm.region
-      LLM_MODEL_ID                   = var.llm.model_id
-      LLM_MAX_REQUESTS               = tostring(var.llm.max_requests)
-      LLM_MAX_TOKENS                 = tostring(var.llm.max_tokens)
-      LLM_MAX_CONTEXT_LENGTH         = tostring(var.llm.max_context_length)
-      EPISODES_LOG_GROUP             = local.episodes_log_group
-      EPISODES_LOG_STREAM            = local.episodes_log_stream
-      CHANGES_LOG_STREAM             = local.changes_log_stream
-      SPOT_INTERRUPTIONS_LOG_GROUP   = local.spot_interruptions_log_group
-      SITEUP_METRIC_NAMESPACE        = "GrampsWeb"
-      GRAMPS_WEB_VERSION             = var.gramps_web_version
-      MONTHLY_BUDGET_USD             = tostring(var.monthly_budget_usd)
-      COST_ENABLED                   = var.cost_enabled ? "true" : "false"
-      HOST_METRICS_ENABLED           = var.host_metrics_enabled ? "true" : "false"
-      VOLUME_METRICS_ENABLED         = var.volume_metrics_enabled ? "true" : "false"
-      PUBLIC_RELIABILITY             = var.public_reliability ? "true" : "false"
-    }
+  codedeploy = {
+    app_name              = var.codedeploy_app_name
+    deployment_group_name = var.codedeploy_deployment_group_name
+    pipeline_name         = var.codepipeline_name
+    ecr_repository_name   = var.ecr_repository_name
+    ecr_repository_arn    = var.ecr_repository_arn
+    deliberate_creators   = var.deliberate_deployment_creators
   }
 
-  tags = {
-    Name = "gramps-web-status"
+  backup = var.backup_vault_name == "" ? null : {
+    vault_name            = var.backup_vault_name
+    mode                  = var.backup_mode
+    schedule              = var.backup_schedule
+    retention_days        = var.backup_retention_days
+    resource_count        = var.backup_resource_count
+    remote_retention_days = var.backup_remote_retention_days
+    region                = var.backup_region
+    copy_vault_arn        = var.backup_copy_vault_arn
+    dest_reader_role_arn  = var.backup_dest_reader_role_arn
   }
-}
 
-resource "aws_lambda_function_url" "status" {
-  function_name      = aws_lambda_function.status.function_name
-  authorization_type = "AWS_IAM"
-}
+  bedrock = var.llm.enabled ? {
+    region             = var.llm.region
+    model_id           = var.llm.model_id
+    max_requests       = var.llm.max_requests
+    max_tokens         = var.llm.max_tokens
+    max_context_length = var.llm.max_context_length
+  } : null
 
-resource "aws_cloudwatch_log_group" "status_lambda" {
-  name              = "/aws/lambda/gramps-web-status"
-  retention_in_days = 30
+  cost         = var.cost_enabled ? { monthly_budget_usd = var.monthly_budget_usd } : null
+  host_metrics = var.host_metrics_enabled ? { volume_metrics = var.volume_metrics_enabled } : null
 
-  tags = {
-    Name = "gramps-web-status-lambda"
+  plugin_dir = "${path.module}/plugin"
+  plugin_environment = {
+    SITE_URL           = "https://${var.primary_domain}"
+    MIN_ROLE           = var.min_role
+    GRAMPS_WEB_VERSION = var.gramps_web_version
   }
+
+  config_js = templatefile("${path.module}/config.js.tpl", { disabled = var.disabled_panels })
 }

@@ -4,6 +4,22 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-25
+
+### Changed
+
+- The status page and the availability recorder come from [terraform-aws-status-page](https://github.com/kjiwa/terraform-aws-status-page) v0.1.1. This module keeps the Gramps Web plugin (`modules/status/plugin`), the shell's `config.js`, the disk alarm, the dashboard, and the backup alerts.
+- `moved` blocks ship for every relocated resource. A consumer's plan shows state moves and no replacements.
+- The status shell and `config.js` are Terraform-owned S3 objects, uploaded by `terraform apply`. The shell's source is committed in terraform-aws-status-page. The `web` CodeBuild project no longer publishes the shell or receives a status bucket name, and CloudFront no longer invalidates `/_status`.
+- IAM, shipped in this module: the status role and the SNS topic policy come from the core, so their policy text changes. The statement `AllowDiskAlarmPublish` is renamed `AllowAlarmPublish`.
+- Breaking: the disabled-panel key `assistant` is now `bedrock`. A consumer's shell configuration that hides panels by key must use the new name.
+- Status page: the Deployment panel no longer shows container version rows read from the Gramps API. The Gramps Web version is a Release panel supplied by the plugin.
+
+### Removed
+
+- The status Lambda, the availability Lambda, their tests, JSON schemas, and the status frontend moved to terraform-aws-status-page. `build/web` builds only the CloudFront error pages.
+- `STATUS_BUCKET_NAME` from `build/web/publish.sh`.
+
 ## [1.1.1] - 2026-10-23
 
 ### Changed
