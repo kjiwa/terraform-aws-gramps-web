@@ -86,6 +86,26 @@ run "spot_on_runs_spot_only" {
   }
 }
 
+run "derived_floor_is_4_gib_with_assistant_off" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+
+  assert {
+    condition     = length(aws_autoscaling_group.this.mixed_instances_policy[0].launch_template[0].override) == 2
+    error_message = "Expected one launch template override per architecture."
+  }
+
+  assert {
+    condition = alltrue([
+      for o in aws_autoscaling_group.this.mixed_instances_policy[0].launch_template[0].override :
+      o.instance_requirements[0].memory_mib[0].min == 4096
+    ])
+    error_message = "The derived memory floor must be 4096 MiB in every override, with the assistant off."
+  }
+}
+
 run "active_false_sleeps_the_asg" {
   command = plan
   module {

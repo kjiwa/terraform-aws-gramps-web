@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-26
+
+### Changed
+
+- The derived memory floor is 4 GiB regardless of `llm.enabled`; it was 2 GiB with the assistant off. Measured peak use is about 1.6 GiB, and the app runs the same process count with the assistant off. On-Demand in us-east-1, the cheapest eligible type moves from t4g.small ($0.0168/h) to t4g.medium ($0.0336/h). `instance_requirements` still accepts a 2 GiB floor.
+
 ## [1.2.0] - 2026-10-25
 
 ### Changed

@@ -187,7 +187,7 @@ variable "cpu_credits" {
 }
 
 variable "instance_requirements" {
-  description = "Override of the ASG instance spec (object), or null to derive sizing from the enabled features. See modules/compute/variables.tf for the shape."
+  description = "Override of the ASG instance spec (object), or null to derive the spec (2 vCPU, 4 GiB memory floor). See modules/compute/variables.tf for the shape."
   type = object({
     vcpu_min             = number
     vcpu_max             = optional(number, 2)
