@@ -189,6 +189,16 @@ data "aws_iam_policy_document" "instance" {
     ]
   }
 
+  # ACM: export the origin certificate (and nothing else) so gunicorn can
+  # serve TLS. Export needs the key, hence the single-ARN scope; Describe lets
+  # origin_cert.sh read the serial it uses to skip a no-op re-export.
+  statement {
+    sid       = "ACMOriginCertificate"
+    effect    = "Allow"
+    actions   = ["acm:ExportCertificate", "acm:DescribeCertificate"]
+    resources = [var.origin_certificate_arn]
+  }
+
   # Watchdog markers: lets the instance write its own cause-attribution
   # markers (watchdog_markers.tf) for the availability Lambda to read back.
   # Scoped to exactly the two marker parameters, not the whole path above --

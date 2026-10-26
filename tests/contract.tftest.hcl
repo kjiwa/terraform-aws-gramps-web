@@ -56,6 +56,17 @@ override_resource {
   }
 }
 
+override_resource {
+  target          = module.edge.aws_acm_certificate.origin
+  override_during = plan
+  values = {
+    arn = "arn:aws:acm:us-east-1:123456789012:certificate/11111111-1111-1111-1111-111111111111"
+    domain_validation_options = [
+      { domain_name = "origin.example.org", resource_record_name = "_o.origin.example.org.", resource_record_type = "CNAME", resource_record_value = "o.acm.example." },
+    ]
+  }
+}
+
 variables {
   primary_domain = "example.org"
   alert_email    = "ops@example.org"

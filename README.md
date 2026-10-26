@@ -58,6 +58,8 @@ Real figures from one small production deployment, offered as an example and not
 
 Everything else rounds to zero. No Bedrock line item appeared; chat is billed per token. The total is about one dollar a day. Spot prices, instance size, volume size, and chat usage move the total. Each cost-bearing input states its price in the [module reference](#module-reference).
 
+The table predates the origin certificate. ACM bills 7 USD for an exportable public certificate at issuance and again at each renewal, and certificates last 198 days, so it adds about one dollar a month.
+
 The Route 53 line is the hosted zone from keel's `dns` module, and keel's audit module adds KMS keys, S3 storage, and CloudTrail to the KMS and S3 lines; this module's own keys are the data volume and backup keys.
 
 ## Backups
@@ -100,9 +102,9 @@ CodePipeline and CodeBuild pull `build/` and `scripts/` from `repo_url` on `sour
 
 ```hcl
 module "gramps_web" {
-  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.3.0"
+  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.4.0"
   repo_url      = "https://github.com/<you>/terraform-aws-gramps-web"
-  source_branch = "release-1.3"
+  source_branch = "release-1.4"
   # ...
 }
 ```
@@ -138,7 +140,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
    terraform init
    terraform apply -target=module.gramps_web.aws_codeconnections_connection.github \
      -var primary_domain=example.org -var alert_email=you@example.org \
-     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.3
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.4
    ```
 
 4. Approve it: in the console, open Developer Tools, Settings, Connections, update the pending `gramps-web` connection, and install the GitHub app on your fork.
@@ -147,7 +149,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
    ```sh
    terraform apply -var primary_domain=example.org -var alert_email=you@example.org \
-     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.3
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.4
    ```
 
    The first apply in a new account can fail while the Auto Scaling group launches its first instance ("Authentication Failure"); re-running the apply succeeded in testing. The status page at `/_status` is off by default: set `status = { enabled = true }` on the module (`min_role` picks who may view it) after raising the account's Lambda concurrency quota (see the `status` input).
@@ -163,7 +165,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
 ## Security and limits
 
-- CloudFront reaches the origin over plain HTTP: the origin security group admits the CloudFront origin-facing prefix list on port 80, and no shared-secret header is checked. Login traffic crosses the public internet unencrypted between CloudFront and the instance, and any CloudFront distribution can reach the origin's Elastic IP.
+- CloudFront reaches the origin over HTTPS with an ACM exportable certificate for `origin.<primary_domain>`, which the instance exports at deploy time. The origin security group admits only the CloudFront origin-facing prefix list on port 443, but no shared-secret header is checked, so any CloudFront distribution can reach the origin's Elastic IP.
 - SES starts in the sandbox in a new account. Invite and reset emails reach only verified recipients until you request production access.
 - One deployment per account: resource names are fixed, and `env` namespaces only SSM parameters and CodeDeploy.
 - `prevent_destroy` on the data volume and media bucket makes `terraform destroy` stop by design; [docs/teardown.md](docs/teardown.md) lists the steps. The audit trail bucket is Object-Locked for a year by default, which blocks teardown of a trial.

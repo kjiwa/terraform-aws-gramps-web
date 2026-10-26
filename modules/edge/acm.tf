@@ -2,7 +2,7 @@ locals {
   all_domains = toset(concat([var.primary_domain], tolist(var.redirect_domains)))
 
   # Flatten (domain, dvo) pairs so each Route53 validation record gets a stable key.
-  validation_records = merge([
+  viewer_validation_records = merge([
     for d in local.all_domains : {
       for dvo in aws_acm_certificate.this[d].domain_validation_options :
       "${d}:${dvo.domain_name}" => {
@@ -14,6 +14,19 @@ locals {
       }
     }
   ]...)
+
+  origin_validation_records = {
+    for dvo in aws_acm_certificate.origin.domain_validation_options :
+    "${local.origin_domain}:${dvo.domain_name}" => {
+      domain  = local.origin_domain
+      name    = dvo.resource_record_name
+      type    = dvo.resource_record_type
+      record  = dvo.resource_record_value
+      zone_id = var.zone_ids[var.primary_domain]
+    }
+  }
+
+  validation_records = merge(local.viewer_validation_records, local.origin_validation_records)
 }
 
 # CloudFront only accepts certificates issued in us-east-1, so these pin to

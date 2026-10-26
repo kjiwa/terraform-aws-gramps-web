@@ -4,6 +4,6 @@ output "subnet_ids" {
 }
 
 output "origin_sg_id" {
-  description = "Origin security group ID. Allows HTTP from CloudFront origin-facing prefix list."
+  description = "Origin security group ID. Allows HTTPS from CloudFront origin-facing prefix list."
   value       = aws_security_group.origin.id
 }

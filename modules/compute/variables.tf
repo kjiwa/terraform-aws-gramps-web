@@ -47,6 +47,11 @@ variable "media_bucket_arn" {
   type        = string
 }
 
+variable "origin_certificate_arn" {
+  description = "ARN of the exportable ACM certificate for the origin host. Published to SSM for the instance's origin_cert.sh and the only certificate its role may export."
+  type        = string
+}
+
 variable "ebs_kms_key_arn" {
   description = "CMK ARN encrypting the data volume, or null when the volume uses the AWS-managed aws/ebs key (every backup.mode except cross_account). Non-null grants the instance role use of the key plus kms:CreateGrant, without which user-data's AttachVolume fails at boot with CustomerKeyHasBeenRevoked -- aws/ebs needs no such grant, so this is only load-bearing once the volume is re-keyed."
   type        = string

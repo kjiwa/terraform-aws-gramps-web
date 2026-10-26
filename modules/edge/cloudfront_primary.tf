@@ -53,7 +53,7 @@ resource "aws_cloudfront_distribution" "primary" {
     custom_origin_config {
       http_port                = 80
       https_port               = 443
-      origin_protocol_policy   = "http-only"
+      origin_protocol_policy   = "https-only"
       origin_ssl_protocols     = ["TLSv1.2"]
       origin_keepalive_timeout = 5
       origin_read_timeout      = 60
@@ -81,8 +81,8 @@ resource "aws_cloudfront_distribution" "primary" {
   }
 
   # Status page origins (modules/status), reached via OAC like the S3 origins
-  # above. Function URLs are HTTPS-only (unlike the EC2 origin's plain-HTTP
-  # custom_origin_config), so the Lambda origin needs its own protocol config.
+  # above. A Lambda Function URL is a custom origin, so the status origin needs its
+  # own protocol config.
   dynamic "origin" {
     for_each = var.status_origins
     content {
@@ -111,10 +111,12 @@ resource "aws_cloudfront_distribution" "primary" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
 
-    # Managed policies: CachingDisabled + AllViewer.
+    # Managed policies: CachingDisabled + AllViewerExceptHostHeader.
     # Gramps Web is dynamic and authed; caching at edge would leak responses across users.
+    # Host stays out: the origin certificate names origin.<primary_domain> only, and the
+    # app builds its links from BASE_URL.
     cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
-    origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
   }
 
   # Error pages served from S3. No origin request policy: forwarding client

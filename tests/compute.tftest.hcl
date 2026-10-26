@@ -25,6 +25,7 @@ variables {
   media_bucket_arn                 = "arn:aws:s3:::gramps-web-media-123456789012"
   pathological_refresh_alarm_names = ["gramps-web-instance-refresh-pathological"]
   base_url                         = "https://example.org"
+  origin_certificate_arn           = "arn:aws:acm:us-east-1:123456789012:certificate/11111111-1111-1111-1111-111111111111"
   rightsize_schedule               = null
   rightsize_min_uptime_hours       = 3
   smtp = {
@@ -142,5 +143,26 @@ run "eip_carries_the_project_tag_without_default_tags" {
   assert {
     condition     = aws_eip.origin.tags["Project"] == "gramps-web"
     error_message = "The instance IAM policy conditions on aws:ResourceTag/Project, so the EIP must be tagged explicitly."
+  }
+}
+
+run "instance_exports_only_the_origin_certificate" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+
+  assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.instance.statement :
+      s.sid == "ACMOriginCertificate" &&
+      s.actions == toset(["acm:ExportCertificate", "acm:DescribeCertificate"]) &&
+      s.resources == toset([var.origin_certificate_arn])
+    ])
+    error_message = "The instance policy must grant acm:ExportCertificate and acm:DescribeCertificate on the origin certificate ARN alone."
+  }
+  assert {
+    condition     = aws_ssm_parameter.origin_certificate_arn.name == "/gramps-web/prod/origin-certificate-arn" && aws_ssm_parameter.origin_certificate_arn.value == var.origin_certificate_arn
+    error_message = "The origin certificate ARN must be published at /gramps-web/<env>/origin-certificate-arn."
   }
 }

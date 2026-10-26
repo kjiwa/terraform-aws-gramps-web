@@ -107,6 +107,20 @@ locals {
   )
 }
 
+# Read by build/app/bundle/scripts/origin_cert.sh, which derives this name as a
+# sibling of the gramps-env parameter. The ARN comes from modules/edge, whose
+# validation resource gates this parameter on the certificate being issued.
+resource "aws_ssm_parameter" "origin_certificate_arn" {
+  name        = "/gramps-web/${var.env}/origin-certificate-arn"
+  description = "ARN of the exportable ACM certificate the instance serves TLS with, consumed by the origin_cert.sh deploy-time export."
+  type        = "String"
+  value       = var.origin_certificate_arn
+
+  tags = {
+    Name = "gramps-web-origin-certificate-arn"
+  }
+}
+
 # Runtime-only knobs read by the AMI-baked watchdog timers (build/ami/
 # health-watchdog.sh, rightsize-watchdog.sh) via load_runtime_env() in
 # /usr/local/lib/gramps-runtime.sh. Split out of instance.env so that flipping
