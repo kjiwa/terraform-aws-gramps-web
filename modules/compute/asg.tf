@@ -1,8 +1,8 @@
 locals {
-  # Instance sizing follows from the feature set, not a user decision. With the AI assistant on, the floor is 4 GiB and with it
-  # off, 2 GiB. Both are upstream's rule of thumb (~200 MB per gunicorn worker,
-  # ~500 MB idle / ~1 GB peak per celery worker), not measured here;
-  # GrampsWeb/MemUsedPercent (status.host_metrics) settles it.
+  # The derived memory floor is 4 GiB whether or not the AI assistant is on.
+  # Measured peak use is about 1.6 GiB, 42% of a 4 GiB host; the process count
+  # is the same with the assistant off. A 2 GiB host would have little
+  # headroom and no swap.
   #
   # Nitro-only is a hard constraint of this module: user_data discovers the
   # data volume by NVMe controller serial, and the launch template sets
@@ -26,7 +26,7 @@ locals {
   instance_requirements = {
     vcpu_min       = local.pinned ? var.instance_requirements.vcpu_min : 2
     vcpu_max       = local.pinned ? var.instance_requirements.vcpu_max : 2
-    memory_mib_min = local.pinned ? var.instance_requirements.memory_mib_min : (var.llm.enabled ? 4096 : 2048)
+    memory_mib_min = local.pinned ? var.instance_requirements.memory_mib_min : 4096
   }
 }
 
