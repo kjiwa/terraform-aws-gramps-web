@@ -49,6 +49,9 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
+# The description still says HTTP; the rule below admits HTTPS (443). EC2 has
+# no API to update a security group's description, so changing it would replace
+# the group the instance is attached to.
 resource "aws_security_group" "origin" {
   name        = "gramps-web-origin"
   description = "EC2 origin: HTTP from CloudFront origin-facing prefix list only."

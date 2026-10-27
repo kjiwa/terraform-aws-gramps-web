@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- README Cost section: the table adds an estimated minimal column and the origin certificate row, and the `active` input's sleeping cost reads 10 to 16 USD. The README no longer lists the archive provider, which no resource uses.
+
 ## [1.4.0] - 2026-10-26
 
 ### Changed

@@ -14,8 +14,8 @@ Required inputs are `primary_domain`, `alert_email`, `repo_url`, and `source_bra
 flowchart LR
   user([Browser]) --> cf[CloudFront]
   r53[Route 53] -.-> cf
-  acm[ACM certificate] -.-> cf
-  cf -->|app and API| asg
+  acm[ACM certificates] -.-> cf
+  cf -->|app and API, HTTPS| asg
   cf -->|error pages, status shell| s3web[(S3 static site)]
   cf -->|/_status| statuslambda[Status Lambda]
   subgraph asg[Auto Scaling group, one instance]
@@ -24,6 +24,7 @@ flowchart LR
     ec2 --- ebs
   end
   ec2 --> media[(S3 media)]
+  acm -.->|origin certificate, exported at deploy| ec2
   ec2 -.->|optional chat| bedrock[Bedrock]
   gh[GitHub release branch] --> pipe[CodePipeline and CodeBuild]
   pipe --> ecr[ECR image]
@@ -41,26 +42,29 @@ The status page and the availability recorder come from [terraform-aws-status-pa
 
 ## Cost
 
-Real figures from one small production deployment, offered as an example and not a promise: a single Spot instance of about 4 GiB (module defaults are On-Demand, `spot.enabled` false), chat enabled, the status page on, and AWS Backup, in us-east-1, for one full month. Unblended cost by service from AWS Cost Explorer, in USD. The total includes the Tax row.
+Unblended cost by service from AWS Cost Explorer, in USD, for the workload account in us-east-1.
 
-| Service | Sep 2026 |
-|---|---:|
-| EC2 compute (Spot) | 11.94 |
-| Key Management Service | 4.96 |
-| EC2 other (EBS and related) | 3.97 |
-| VPC (public IPv4 address) | 3.61 |
-| Tax | 2.83 |
-| Container Registry (ECR) | 1.34 |
-| CloudWatch | 1.30 |
-| Route 53 | 1.04 |
-| S3, Cost Explorer, CodeBuild, Backup | 0.51 |
-| **Total** | **31.50** |
+| Service | Sep 2026, measured | Minimal, estimated |
+|---|---:|---:|
+| EC2 compute (Spot) | 11.94 | 12 |
+| Key Management Service | 4.96 | 0 |
+| EC2 other (EBS and related) | 3.97 | 3 |
+| VPC (public IPv4 address) | 3.61 | 4 |
+| Container Registry (ECR) | 1.34 | 1 |
+| CloudWatch | 1.30 | 1 |
+| Route 53 | 1.04 | 1 |
+| Certificate Manager (origin certificate) | 0.00 | 1 |
+| S3, Cost Explorer, CodeBuild, Backup | 0.51 | 0 |
+| Tax | 2.83 | not included |
+| **Total** | **31.50** | **about 23** |
 
-Everything else rounds to zero. No Bedrock line item appeared; chat is billed per token. The total is about one dollar a day. Spot prices, instance size, volume size, and chat usage move the total. Each cost-bearing input states its price in the [module reference](#module-reference).
+The measured column is one small production deployment for one full month, offered as an example and not a promise: a single Spot instance of about 4 GiB, chat enabled, the status page on, cross-account AWS Backup, two domains, and keel's audit module. The separate backup account is not included; it billed 2.34 that month, mostly KMS. The certificate row reads zero because that deployment had no origin certificate yet. ACM bills 7 USD for an exportable public certificate at issuance and at each renewal, and certificates last 198 days, so it adds about one dollar a month.
 
-The table predates the origin certificate. ACM bills 7 USD for an exportable public certificate at issuance and again at each renewal, and certificates last 198 days, so it adds about one dollar a month.
+The estimated column is computed from the measured one, not measured: the same deployment on Spot with `backup.mode = "disabled"`, no chat, no status page, one domain, and no keel audit or DNSSEC, rounded to whole dollars and before tax. Without backups there is no recovery from data loss, and each Spot reclaim costs a few minutes of outage. On-Demand, the module default, adds about 13 USD a month; the cheapest eligible type, t4g.medium, costs 24.53 USD a month at 0.0336 USD per hour in us-east-1.
 
-The Route 53 line is the hosted zone from keel's `dns` module, and keel's audit module adds KMS keys, S3 storage, and CloudTrail to the KMS and S3 lines; this module's own keys are the data volume and backup keys.
+No Bedrock line item appeared; chat is billed per token. Spot prices, instance size, volume size, and chat usage move the total. Each cost-bearing input states its price in the [module reference](#module-reference).
+
+The Route 53 line is the two hosted zones from keel's `dns` module, and keel's audit module adds KMS keys, S3 storage, and CloudTrail to the KMS and S3 lines. This module's own keys are one for backups, plus one for the data volume under `cross_account` or a replica key under `cross_region`.
 
 ## Backups
 
@@ -94,7 +98,7 @@ The deploy builds the image from the upstream release plus your addons, pushes i
 
 ## Sleeping the site
 
-`active = false` stops the instance and the canary alarms and keeps all data. Public IPv4, KMS keys, the Route 53 zone, ECR, and EBS keep billing, about ten to fifteen dollars a month on the table's figures (the zone and some KMS keys belong to keel in the example). Setting it back to `true` and applying wakes the site in about five minutes.
+`active = false` stops the instance and the canary alarms and keeps all data. Public IPv4, KMS keys, the Route 53 zone, ECR, EBS, and the origin certificate keep billing; the `active` input in the [module reference](#module-reference) gives the amount. Setting it back to `true` and applying wakes the site in about five minutes.
 
 ## Release branches
 
@@ -113,7 +117,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
 ## Requirements
 
-- Terraform 1.15 or later, the AWS provider 6.45 or later, and the archive (2.7 or later) and random (3.9 or later) providers. The module needs an `aws.us_east_1` provider alias for the CloudFront certificate.
+- Terraform 1.15 or later, the AWS provider 6.45 or later, and the random provider 3.9 or later. The module needs an `aws.us_east_1` provider alias for the CloudFront certificate.
 - A public Route 53 hosted zone for each served domain. [terraform-aws-keel](https://github.com/kjiwa/terraform-aws-keel)'s `dns` module creates one.
 - For the first deployment: Packer, to build the base AMIs, a default VPC in the region (Packer sets no subnet), and `aws`, `jq`, `curl`, `unzip`, and `sha256sum` for `build/ami/build.sh`.
 - For the operator scripts under `scripts/`: the AWS CLI, `terraform`, and `jq`.
@@ -229,7 +233,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Licensed 
 | primary\_domain | Canonical apex domain (string). Every other entry in domains, and every www. host, 301s to it. Its Route 53 hosted zone must already exist. | `string` | n/a | yes |
 | repo\_url | HTTPS GitHub clone URL of the repo the builds pull build/ and scripts/ from (string). Required: your fork, since the CodeConnections app installs only on accounts you control. | `string` | n/a | yes |
 | source\_branch | Branch of repo\_url the builds pull (string). CodePipeline sources a branch, never a tag, so use the release-<major>.<minor> branch matching the module ref. Builds run its build/ and scripts/ with deploy permissions. | `string` | n/a | yes |
-| active | Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, and EBS still bill (about 10 to 15 USD per month); waking takes about five minutes. | `bool` | `true` | no |
+| active | Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, EBS, and the origin certificate still bill (about 10 to 16 USD per month, between the README's estimated and measured Cost columns); waking takes about five minutes. | `bool` | `true` | no |
 | additional\_cache\_behaviors | Extra ordered cache behaviors on the primary distribution (list of objects) that route paths to additional\_origins. See modules/edge/variables.tf for the shape and the paths that must not be overlapped. | ```list(object({ path_pattern = string target_origin_id = string allowed_methods = optional(list(string), ["GET", "HEAD"]) cache_policy_id = optional(string, "658327ea-f89d-4fab-a63d-7e88639e58f6") origin_request_policy_id = optional(string) function_associations = optional(list(object({ event_type = string function_arn = string })), []) }))``` | `[]` | no |
 | additional\_origins | Extra CloudFront origins on the primary distribution (map of origin ID to object), for serving content beside the app. See modules/edge/variables.tf for the shape. | ```map(object({ domain_name = string origin_access_control_id = optional(string) }))``` | `{}` | no |
 | ami\_ids | Base AMI ID per architecture (map with keys arm64 and x86\_64), or null to use the newest self-owned AMI tagged Name=gramps-web-base. Null follows the newest AMI, so a new build rolls out on the next apply; pin to hold it. The build cleanup keeps only the newest AMI per architecture plus those referenced by launch template versions or running instances, so rolling back by pinning reaches only an AMI still referenced. The AMIs come from the build project this module creates. | `map(string)` | `null` | no |

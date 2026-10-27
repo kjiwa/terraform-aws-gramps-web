@@ -41,7 +41,7 @@ variable "env" {
 }
 
 variable "active" {
-  description = "Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, and EBS still bill (about 10 to 15 USD per month); waking takes about five minutes."
+  description = "Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, EBS, and the origin certificate still bill (about 10 to 16 USD per month, between the README's estimated and measured Cost columns); waking takes about five minutes."
   type        = bool
   default     = true
 }
