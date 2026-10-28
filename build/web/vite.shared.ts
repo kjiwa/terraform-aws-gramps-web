@@ -25,7 +25,7 @@ export function makeConfig(
         input: typeof input === 'string' ? resolve(import.meta.dirname, input) : input,
       },
     },
-    // gwFinalize is 'post'-enforced and listed after viteSingleFile(), which
+    // gwFinalize's generateBundle is order:'post' and listed after viteSingleFile(), which
     // is what guarantees it runs on the already-inlined HTML -- see its own
     // header comment for the full ordering argument.
     plugins: [viteSingleFile(), gwFinalize({ requiredMarkers })],
