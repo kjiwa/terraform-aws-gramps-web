@@ -8,16 +8,10 @@ import { renderErrorPage } from './src/error/render.ts';
 /**
  * Builds exactly ONE of the three error pages per invocation, selected by
  * GW_ERROR_CODE -- see package.json's build:error script, which loops this
- * over 502/503/504. A single Rollup/Rolldown build config can't produce all
- * three: vite-plugin-singlefile's recommended config sets
- * output.codeSplitting = false under Vite 8 (the Rolldown-backed Vite
- * major), which Rolldown rejects outright for a multi-entry input --
- * "multiple inputs are not supported when output.codeSplitting is false."
- * Running three single-entry builds sidesteps that restriction and keeps
- * every entry's bundle self-contained, which is what lets
- * vite-plugin-singlefile's src-tag inlining (see its generateBundle) catch
- * everything with nothing left importing a chunk that gets deleted out from
- * under it.
+ * over 502/503/504. Running three single-entry builds keeps every entry's
+ * bundle self-contained, which is what lets vite-plugin-singlefile's
+ * src-tag inlining (see its generateBundle) catch everything with nothing
+ * left importing a chunk that gets deleted out from under it.
  *
  * The page itself is materialized from one shared shell
  * (pages/errors/shell.html) and src/error/pages.ts's per-code copy, at
