@@ -1,13 +1,12 @@
 #!/bin/sh
 # Compares the hand-pinned versions no ecosystem bot covers against their
-# upstream latest, and prints the ones behind. The nine pins:
+# upstream latest, and prints the ones behind. The eight pins:
 #   Packer CLI (build/ami/build.sh)
 #   packer-plugin-amazon (build/ami/gramps-ami.pkr.hcl)
 #   Terraform CLI (.terraform-version)
 #   tflint (terraform.yml's setup-tflint version input)
 #   tflint AWS ruleset (.tflint.hcl)
 #   Gramps Web (the gramps.version default in variables.tf)
-#   gitleaks (ci.yml's GITLEAKS_VERSION)
 #   valkey (build/app/bundle/docker-compose.yml)
 #   nginx (build/app/bundle/docker-compose.yml)
 # Dependabot has no Packer ecosystem and nothing else reads these, so they
@@ -104,12 +103,6 @@ check_gramps_web() {
   report "Gramps Web (variables.tf gramps.version)" "$_check_gramps_web_current" "$_check_gramps_web_latest"
 }
 
-check_gitleaks() {
-  _check_gitleaks_current="$(sed -n 's/^          GITLEAKS_VERSION: \(.*\)$/\1/p' "$REPO_ROOT/.github/workflows/ci.yml")"
-  _check_gitleaks_latest="$(latest_gh_release gitleaks/gitleaks)"
-  report "gitleaks (ci.yml)" "$_check_gitleaks_current" "$_check_gitleaks_latest"
-}
-
 # Docker Hub's tag list, newest-first is not guaranteed, so this reads every
 # page and takes the highest matching a bare "<major>-alpine" tag. valkey's
 # own alpine tags never move backward across a major (they're what "8-alpine"
@@ -154,7 +147,6 @@ main() {
   check_terraform
   check_tflint
   check_tflint_ruleset_aws
-  check_gitleaks
   check_gramps_web
   check_valkey
   check_nginx
