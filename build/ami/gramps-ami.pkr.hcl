@@ -5,7 +5,7 @@ packer {
       # reproducibility pin (paired with the Packer version pinned in
       # build/ami/build.sh). Requires Packer >= 1.14, whose init pulls
       # official plugins from releases.hashicorp.com.
-      version = "1.8.2"
+      version = "1.8.4"
       source  = "github.com/hashicorp/amazon"
     }
   }
