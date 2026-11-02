@@ -1,134 +1,26 @@
 data "aws_caller_identity" "current" {}
 
-# Customer-managed key for the data volume, rather than the default aws/ebs key
-# a bare `encrypted = true` would pick.
-#
-# cross_account ONLY, and gated rather than always-on for a reason worth
-# spelling out. aws/ebs is an AWS-managed key whose policy is immutable and
-# therefore cannot be shared with another account; AWS refuses to copy a snapshot
-# the destination account cannot decrypt; so a volume on aws/ebs cannot be backed
-# up cross-account by any mechanism. That makes the CMK unavoidable *here* and
-# pointless everywhere else -- local, cross_region and disabled all work fine on
-# aws/ebs, and creating this key for them would bill $1/mo for nothing.
-#
-# The gate also bounds the pain. kms_key_id is ForceNew, so naming this key
-# unconditionally would plan a REPLACE of the data volume in every existing
-# deployment -- which prevent_destroy then (correctly) refuses, leaving a repo
-# whose plan errors until a re-key nobody asked for. Gated, only the deployment
-# that opts into cross_account hits that, and it needs the re-key anyway:
-# terraform apply -target this key, scripts/azmove.sh rekey, adopt, apply. See
-# docs/cross-account-backup.md (Re-key the data volume).
-#
-# Root full-access delegates authorization to IAM.
-data "aws_iam_policy_document" "data_key" {
-  count = local.backup_cross_account ? 1 : 0
+# Volume, its key and AWS Backup live in keel's data-volume. Names are pinned to
+# the ones this stack created before the module existed, so adoption renames
+# nothing. The vaults use a customer-managed key because the media bucket's S3
+# recovery points are re-encrypted under it and must be readable cross-account.
+module "data_volume" {
+  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/data-volume?ref=v0.2.0"
 
-  statement {
-    sid       = "RootFullAccess"
-    effect    = "Allow"
-    actions   = ["kms:*"]
-    resources = ["*"]
-    principals {
-      type        = "AWS"
-      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
-    }
+  name_prefix = "gramps-web"
+  volume_name = "gramps-data"
+  volume_tags = {
+    Project = "gramps-web"
   }
+  az          = var.az
+  size_gib    = var.data_volume_gib
+  snapshot_id = var.data_volume_snapshot_id
 
-  # The destination account has to decrypt the snapshot to copy it into its own
-  # vault, and re-encrypt it under its own key.
-  #
-  # Read-shaped, never kms:* -- the backup account copies from us, it does not
-  # administer our keys. It must never be able to schedule this key for
-  # deletion.
-  #
-  # Spelled out rather than kms:GenerateDataKey* / kms:ReEncrypt*, because the
-  # wildcards are wider than they look: GenerateDataKey* also grants
-  # GenerateDataKeyPair and GenerateDataKeyPairWithoutPlaintext, which are
-  # asymmetric-keypair operations that cannot occur in a snapshot copy. Access
-  # Analyzer reports the expanded set.
-  statement {
-    sid    = "BackupAccountCopySnapshot"
-    effect = "Allow"
-    actions = [
-      "kms:Decrypt",
-      "kms:DescribeKey",
-      "kms:ReEncryptFrom",
-      "kms:ReEncryptTo",
-      "kms:GenerateDataKey",
-      "kms:GenerateDataKeyWithoutPlaintext",
-    ]
-    resources = ["*"]
-    principals {
-      type        = "AWS"
-      identifiers = ["arn:aws:iam::${var.backup.account_id}:root"]
-    }
-  }
+  backup        = var.backup
+  backup_region = var.backup_region
+  vault_kms     = "cmk"
 
-  # CreateGrant is the one that looks alarming and is required: AWS Backup
-  # creates grants on the caller's behalf to run a copy job. GrantIsForAWSResource
-  # confines it to grants AWS services create for themselves, so it is not usable
-  # as a general-purpose escalation.
-  statement {
-    sid       = "BackupAccountCreateGrant"
-    effect    = "Allow"
-    actions   = ["kms:CreateGrant"]
-    resources = ["*"]
-    principals {
-      type        = "AWS"
-      identifiers = ["arn:aws:iam::${var.backup.account_id}:root"]
-    }
-    condition {
-      test     = "Bool"
-      variable = "kms:GrantIsForAWSResource"
-      values   = ["true"]
-    }
-  }
-}
-
-resource "aws_kms_key" "data" {
-  count = local.backup_cross_account ? 1 : 0
-
-  description             = "Encrypts the gramps-data EBS volume"
-  enable_key_rotation     = true
-  deletion_window_in_days = 30
-  policy                  = data.aws_iam_policy_document.data_key[0].json
-
-  tags = {
-    Name = "gramps-data"
-  }
-}
-
-resource "aws_kms_alias" "data" {
-  count         = local.backup_cross_account ? 1 : 0
-  name          = "alias/gramps-data"
-  target_key_id = aws_kms_key.data[0].key_id
-}
-
-resource "aws_ebs_volume" "this" {
-  availability_zone = var.az
-  size              = var.data_volume_gib
-  type              = "gp3"
-  encrypted         = true
-  snapshot_id       = var.data_volume_snapshot_id
-
-  # null outside cross_account, which for this Optional+Computed attribute means
-  # "whatever the volume already uses" -- so a deployment that never leaves the
-  # account keeps its aws/ebs volume with no diff, and dropping back out of
-  # cross_account does not plan to un-key a volume either.
-  kms_key_id = local.backup_cross_account ? aws_kms_key.data[0].arn : null
-
-  # Persistent selects nothing (AWS Backup names this volume's ARN outright in
-  # backup.tf). Kept because azmove.sh sets it on restored volumes and it
-  # documents which of the two attached volumes is the irreplaceable one.
-  tags = {
-    Name       = "gramps-data"
-    Persistent = "true"
-    Project    = "gramps-web"
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
+  extra_backup_resource_arns = [aws_s3_bucket.media.arn]
 }
 
 locals {
@@ -197,7 +89,7 @@ resource "aws_s3_bucket_public_access_block" "media" {
 }
 
 # The media bucket is SSE-S3, not a customer-managed key like the EBS data
-# volume (aws_kms_key.data). A CMK here bought only a key policy and rotation
+# volume (the data-volume module's key). A CMK here bought only a key policy and rotation
 # schedule an auditor could point at, plus crypto-shred by deleting the key --
 # it never gated cross-account backup: AWS Backup reads objects through the
 # backup role and re-encrypts them under the vault's key regardless of the
@@ -264,7 +156,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
   # it re-cools and the steady state is unaffected -- and at this corpus size the
   # whole effect is sub-cent either way. It would matter at scale; the answer
   # there is continuous backups (which read only what changed), not dropping
-  # this rule. See the periodic-vs-continuous note in backup.tf.
+  # this rule. See the periodic-vs-continuous note in keel's data-volume backup.tf.
   rule {
     id     = "media-intelligent-tiering"
     status = "Enabled"

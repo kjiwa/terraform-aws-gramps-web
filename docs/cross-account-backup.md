@@ -149,7 +149,7 @@ building this account's bucket somewhere else):
 
 ```hcl
 module "state" {
-  source      = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/state-bucket?ref=v0.1.2"
+  source      = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/state-bucket?ref=v0.2.0"
   bucket_name = "<state-bucket>"
 }
 ```
@@ -179,7 +179,7 @@ Add keel's `backup-vault-account` module to `<backup-root>`:
 
 ```hcl
 module "backup_vault" {
-  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/backup-vault-account?ref=v0.1.2"
+  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/backup-vault-account?ref=v0.2.0"
 
   name_prefix                   = "gramps-web"
   vault_name                    = "gramps-web-backup-replica"
@@ -242,7 +242,7 @@ terraform -chdir=<root> apply
 terraform -chdir=<root> output -json gramps_web | jq -r .backup_copy_vault_arn
 ```
 
-`modules/storage` creates the data volume directly on the CMK `cross_account`
+`modules/storage` (through keel's `data-volume`) creates the data volume directly on the CMK `cross_account`
 requires, so there is nothing to re-key. **If you are adding this mode to a
 deployment whose volume already exists**, check it first:
 
@@ -381,7 +381,7 @@ that is the design working, not a bug:
 
 ```
 Error: Instance cannot be destroyed
-  Resource module.gramps_web.module.storage.aws_ebs_volume.this has lifecycle.prevent_destroy
+  Resource module.gramps_web.module.storage.module.data_volume.aws_ebs_volume.this has lifecycle.prevent_destroy
 ```
 
 Create the key, and nothing else:
@@ -460,7 +460,7 @@ alias.
 
 **(b) Simple**, if a window with no off-site copy is acceptable: delete the
 replica vault's recovery points, remove the two `prevent_destroy` blocks in
-`modules/storage/backup.tf` (this needs a fork or a local checkout of the
+`backup.tf` of keel's `data-volume` module (this needs a local copy of that
 module), then let the next apply destroy the vault and key outright.
 
 Either way, confirm you are touching the *replica* key: the state bucket's CMK

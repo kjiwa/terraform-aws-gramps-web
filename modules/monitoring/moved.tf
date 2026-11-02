@@ -150,3 +150,38 @@ moved {
   from = aws_cloudwatch_event_target.spot_log
   to   = module.availability.aws_cloudwatch_event_target.spot_log
 }
+
+moved {
+  from = aws_cloudwatch_event_rule.backup_failure
+  to   = module.host_alarms.aws_cloudwatch_event_rule.backup_failure
+}
+
+moved {
+  from = aws_cloudwatch_event_target.backup_failure
+  to   = module.host_alarms.aws_cloudwatch_event_target.backup_failure
+}
+
+moved {
+  from = aws_cloudwatch_metric_alarm.disk_used
+  to   = module.host_alarms.aws_cloudwatch_metric_alarm.disk_used
+}
+
+moved {
+  from = aws_cloudwatch_dashboard.availability
+  to   = module.host_alarms.aws_cloudwatch_dashboard.availability
+}
+
+moved {
+  from = aws_cloudwatch_query_definition.downtime_by_cause
+  to   = module.host_alarms.aws_cloudwatch_query_definition.downtime_by_cause
+}
+
+moved {
+  from = aws_cloudwatch_query_definition.episodes
+  to   = module.host_alarms.aws_cloudwatch_query_definition.episodes
+}
+
+moved {
+  from = aws_cloudwatch_query_definition.interruptions_per_week
+  to   = module.host_alarms.aws_cloudwatch_query_definition.interruptions_per_week
+}

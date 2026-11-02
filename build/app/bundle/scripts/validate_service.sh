@@ -69,6 +69,7 @@ main() {
     2[0-9][0-9] | 3[0-9][0-9])
       log "Healthy (HTTP $_main_code)."
       invalidate_cache
+      prune_images
       return 0
       ;;
     esac

@@ -146,7 +146,7 @@ state_address() {
 
 # resolve_plan_retention REGION -> "LOCAL_DAYS\tREMOTE_DAYS", read from the
 # live plan, so a recovery point taken outside the schedule expires exactly like
-# a nightly one. Rules[0] and CopyActions[0] are safe indexes: backup.tf declares
+# a nightly one. Rules[0] and CopyActions[0] are safe indexes: keel's data-volume backup.tf declares
 # exactly one rule with at most one copy_action. Callers set BACKUP_PLAN_NAME
 # (repo constant "gramps-web-daily") before use.
 resolve_plan_retention() {

@@ -1,8 +1,8 @@
 locals {
   # The derived memory floor is 4 GiB whether or not the AI assistant is on.
-  # Measured peak use is about 1.6 GiB, 42% of a 4 GiB host; the process count
-  # is the same with the assistant off. A 2 GiB host would have little
-  # headroom and no swap.
+  # Measured peak use is about 2.0 GiB, 49% of a 4 GiB host, with 3 gunicorn
+  # workers behind the nginx proxy; the process count is the same with the
+  # assistant off. A 2 GiB host would have no headroom and no swap.
   #
   # Nitro-only is a hard constraint of this module: user_data discovers the
   # data volume by NVMe controller serial, and the launch template sets

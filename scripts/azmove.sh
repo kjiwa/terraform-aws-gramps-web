@@ -26,7 +26,7 @@
 #
 # So an AZ move is score -> prepare -> adopt -> apply -> finish, and a re-key is
 # rekey -> adopt -> apply -> finish. `rekey` re-encrypts a volume under a
-# customer-managed KMS key (modules/storage/aws_kms_key.data), required for
+# customer-managed KMS key (keel data-volume aws_kms_key.data), required for
 # cross-account backup. See docs/cross-account-backup.md.
 #
 # `shrink` differs from prepare/rekey in shape, not intent: EBS cannot restore a
@@ -66,7 +66,7 @@ readonly LOG_PREFIX="azmove"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 
-readonly VOL_RESOURCE_SUFFIX="module.storage.aws_ebs_volume.this"
+readonly VOL_RESOURCE_SUFFIX="module.storage.module.data_volume.aws_ebs_volume.this"
 # cmd_finish's waits: 60 ticks x 10s = ~10 min each, which covers a Spot
 # capacity wait plus the on-boot CodeDeploy run.
 readonly WAIT_TICKS=60
@@ -195,7 +195,7 @@ snapshot_volume() {
 # restore_volume SNAPSHOT AZ -> new volume id on stdout, once available.
 # Project=gramps-web is REQUIRED: the instance role's AttachVolume is gated on
 # that tag. Persistent=true drives nothing (AWS Backup selects the volume by
-# ARN) but is kept so the restored volume matches what modules/storage declares.
+# ARN) but is kept so the restored volume matches what keel's data-volume declares.
 restore_volume() {
   log "Creating gp3 volume from $1 in $2..."
   _restore_volume_new_vol="$(aws ec2 create-volume --region "$REGION" \
@@ -303,7 +303,7 @@ cleanup_shrink() {
 }
 
 # create_blank_volume SIZE_GB AZ KEY_ARN -> new blank gp3 volume id on stdout,
-# once available. KEY_ARN empty means aws/ebs -- mirrors modules/storage's own
+# once available. KEY_ARN empty means aws/ebs -- mirrors keel data-volume's own
 # `encrypted = true, kms_key_id = null` under backup.mode != cross_account.
 create_blank_volume() {
   _create_blank_volume_new_vol=""

@@ -3,7 +3,7 @@
 `terraform destroy` stops by design: the data volume, the media bucket, the backup vault, and the vault key carry `prevent_destroy`. Tear down only a deployment whose data you no longer want; the backups go with it.
 
 1. Take a final backup if you want one (`scripts/backup.sh --root DIR run`), and download what you need.
-2. Remove the four `prevent_destroy` guards in your checkout of the module: the data volume and media bucket in `modules/storage/main.tf`, the vault and its key in `modules/storage/backup.tf`.
+2. Remove the four `prevent_destroy` guards in your checkout of the module: the media bucket in `modules/storage/main.tf`, and the data volume, the vault and its key in the `data-volume` module of terraform-aws-keel (`main.tf` and `backup.tf`, fetched into `.terraform/modules`; `terraform init` restores the fetched copy, so do not re-run it between the edit and the destroy).
 3. Delete every recovery point in the vault (`aws backup list-recovery-points-by-backup-vault`, then `delete-recovery-point`). A vault with recovery points cannot be deleted.
 4. Empty the versioned buckets, including old versions and delete markers: media, pipeline artifacts, build cache, and error pages. Empty the ECR repository.
 5. Run `terraform destroy` in the root. Re-run it if it times out waiting on a CloudFront distribution or certificate.
