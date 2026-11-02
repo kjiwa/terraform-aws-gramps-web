@@ -99,7 +99,7 @@ jobs:
           version: ${{ steps.packerver.outputs.version }}
       - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6
         with:
-          tflint_version: v0.64.0
+          tflint_version: v0.65.0
       # Plugin cache keyed on the pinned ruleset version; on a hit the init
       # below verifies and skips the download (and its GitHub API call).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6

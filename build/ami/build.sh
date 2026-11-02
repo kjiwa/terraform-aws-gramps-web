@@ -42,7 +42,7 @@ readonly REPO_ROOT
 # amazon plugin in gramps-ami.pkr.hcl is the other half of the pin; >= 1.14
 # is required either way (init pulls official plugins from
 # releases.hashicorp.com).
-readonly PACKER_VERSION="1.16.1"
+readonly PACKER_VERSION="1.16.2"
 readonly PACKER_DIR="/tmp/packer-$PACKER_VERSION"
 
 # Pinned download with checksum verification against HashiCorp's published
