@@ -94,7 +94,7 @@ run "defaults_plan_with_only_the_required_inputs" {
     error_message = "Zone ids must come from the looked-up hosted zones."
   }
   assert {
-    condition     = var.gramps.version == "26.10.2"
+    condition     = var.gramps.version == "26.11.0"
     error_message = "gramps.version must default to the tested release."
   }
   assert {

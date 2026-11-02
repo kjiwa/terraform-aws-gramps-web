@@ -85,7 +85,7 @@ Set `gramps.version` to the upstream image tag, apply, then deploy:
 
 ```hcl
 gramps = {
-  version = "26.10.2"
+  version = "26.11.0"
 }
 ```
 
@@ -108,7 +108,7 @@ CodePipeline and CodeBuild pull `build/` and `scripts/` from `repo_url` on `sour
 module "gramps_web" {
   source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.4.0"
   repo_url      = "https://github.com/<you>/terraform-aws-gramps-web"
-  source_branch = "release-1.4"
+  source_branch = "release-1.5"
   # ...
 }
 ```
@@ -144,7 +144,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
    terraform init
    terraform apply -target=module.gramps_web.aws_codeconnections_connection.github \
      -var primary_domain=example.org -var alert_email=you@example.org \
-     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.4
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.5
    ```
 
 4. Approve it: in the console, open Developer Tools, Settings, Connections, update the pending `gramps-web` connection, and install the GitHub app on your fork.
@@ -153,7 +153,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
    ```sh
    terraform apply -var primary_domain=example.org -var alert_email=you@example.org \
-     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.4
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.5
    ```
 
    The first apply in a new account can fail while the Auto Scaling group launches its first instance ("Authentication Failure"); re-running the apply succeeded in testing. The status page at `/_status` is off by default: set `status = { enabled = true }` on the module (`min_role` picks who may view it) after raising the account's Lambda concurrency quota (see the `status` input).
@@ -247,7 +247,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Licensed 
 | domains | Apex domains served (list of strings), or null to serve only primary\_domain. Each needs an existing public Route 53 hosted zone, such as keel's dns module creates. | `list(string)` | `null` | no |
 | env | Environment name (string) that namespaces SSM parameter paths and the CodeDeploy deployment group. Fixed resource names mean one deployment per AWS account. | `string` | `"prod"` | no |
 | frontend | Gramps Web browser config, window.grampsjsConfig (object). Empty strings keep the upstream default and omit the key. The map style fields are MapLibre style URLs for the light map, dark map and OpenHistoricalMap overlay. | ```object({ hide_dna_link = optional(bool, false) login_redirect = optional(string, "") map_base_style_light = optional(string, "") map_base_style_dark = optional(string, "") map_ohm_style = optional(string, "") })``` | `{}` | no |
-| gramps | Gramps Web build (object). version is the upstream grampsweb image tag; base\_image its repository without a tag; addons are addons-source directory names baked in; web\_repo and web\_ref optionally replace the frontend with a fork build (web\_ref pins a commit); addons\_source\_repo is the addons Git URL. | ```object({ version = optional(string, "26.10.2") base_image = optional(string, "ghcr.io/gramps-project/grampsweb") addons = optional(list(string), []) addons_source_repo = optional(string, "https://github.com/gramps-project/addons-source.git") web_repo = optional(string, "") web_ref = optional(string, "") })``` | `{}` | no |
+| gramps | Gramps Web build (object). version is the upstream grampsweb image tag; base\_image its repository without a tag; addons are addons-source directory names baked in; web\_repo and web\_ref optionally replace the frontend with a fork build (web\_ref pins a commit); addons\_source\_repo is the addons Git URL. | ```object({ version = optional(string, "26.11.0") base_image = optional(string, "ghcr.io/gramps-project/grampsweb") addons = optional(list(string), []) addons_source_repo = optional(string, "https://github.com/gramps-project/addons-source.git") web_repo = optional(string, "") web_ref = optional(string, "") })``` | `{}` | no |
 | instance\_requirements | Override of the ASG instance spec (object), or null to derive the spec (2 vCPU, 4 GiB memory floor). See modules/compute/variables.tf for the shape. | ```object({ vcpu_min = number vcpu_max = optional(number, 2) memory_mib_min = number allowed_types_arm64 = list(string) allowed_types_x86_64 = list(string) })``` | `null` | no |
 | llm | AI chat assistant on Bedrock (object); off unless enabled, and billed per token when on. model\_id is the Bedrock model or inference-profile ID without the bedrock: prefix; region is the invocation region (empty for the module's region). max\_requests, max\_tokens and max\_context\_length bound each chat run; system\_prompt overrides the agent prompt. hourly\_token\_alarm is the token count per hour that alarms to alert\_email, 0 to disable. | ```object({ enabled = optional(bool, false) model_id = optional(string, "us.anthropic.claude-haiku-4-5-20251001-v1:0") region = optional(string, "") max_requests = optional(number, 15) max_tokens = optional(number, 200000) max_context_length = optional(number, 50000) system_prompt = optional(string, "") hourly_token_alarm = optional(number, 3000000) })``` | `{}` | no |
 | media\_bucket\_name | S3 bucket name for media (string, globally unique), or empty to derive gramps-web-media-<account-id>. | `string` | `""` | no |

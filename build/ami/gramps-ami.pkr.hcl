@@ -78,7 +78,7 @@ locals {
 }
 
 # Base AMI: OS, Docker, compose, SSM + CodeDeploy agents, the Spot interruption
-# drain unit, and valkey and grampsweb both pre-pulled. Baking grampsweb lets
+# drain unit, and valkey, the proxy and grampsweb pre-pulled. Baking grampsweb lets
 # same-version launches skip the ECR pull; a version bump still pulls the new
 # tag via CodeDeploy's AfterInstall. A larger snapshot costs EBS lazy-load
 # latency on first read, which gramps-prewarm (prewarm.sh/.service) pays
@@ -113,7 +113,7 @@ source "amazon-ebs" "gramps" {
   user_data         = local.builder_watchdog_user_data
 
   ami_name        = "gramps-web-base-arm64-{{timestamp}}"
-  ami_description = "Gramps Web base. docker + compose + ssm/codedeploy agents, valkey and grampsweb pre-pulled (pins: build/app/bundle/docker-compose.yml, gramps_web_version)."
+  ami_description = "Gramps Web base. docker + compose + ssm/codedeploy agents, valkey, proxy and grampsweb pre-pulled (pins: build/app/bundle/docker-compose.yml, gramps_web_version)."
 
   dynamic "launch_block_device_mappings" {
     for_each = [local.gramps_ami_root_volume]
@@ -138,7 +138,7 @@ source "amazon-ebs" "gramps" {
 # x86_64 sibling of the arm64 source above. Identical OS image lineage and
 # provisioner; differs only in the builder architecture and the spot pools used
 # to build it. install.sh is arch-agnostic (dnf, the CodeDeploy region install
-# script, and the valkey pull all resolve per-arch).
+# script, and the image pulls all resolve per-arch).
 source "amazon-ebs" "gramps_x86" {
   region = var.region
 
@@ -165,7 +165,7 @@ source "amazon-ebs" "gramps_x86" {
   user_data         = local.builder_watchdog_user_data
 
   ami_name        = "gramps-web-base-x86-{{timestamp}}"
-  ami_description = "Gramps Web base (x86_64). docker + compose + ssm/codedeploy agents, valkey and grampsweb pre-pulled (pins: build/app/bundle/docker-compose.yml, gramps_web_version)."
+  ami_description = "Gramps Web base (x86_64). docker + compose + ssm/codedeploy agents, valkey, proxy and grampsweb pre-pulled (pins: build/app/bundle/docker-compose.yml, gramps_web_version)."
 
   dynamic "launch_block_device_mappings" {
     for_each = [local.gramps_ami_root_volume]

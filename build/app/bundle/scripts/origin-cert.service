@@ -1,5 +1,5 @@
-# Re-exports the origin certificate when ACM has renewed it and restarts
-# grampsweb to pick it up. Driven by origin-cert.timer; installed by
+# Re-exports the origin certificate when ACM has renewed it and reloads
+# the proxy to pick it up. Driven by origin-cert.timer; installed by
 # after_install.sh.
 [Unit]
 Description=Refresh the origin TLS certificate from ACM
@@ -8,4 +8,4 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/gramps-origin-cert --restart
+ExecStart=/usr/local/bin/gramps-origin-cert --reload

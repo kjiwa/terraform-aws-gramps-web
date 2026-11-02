@@ -1,8 +1,8 @@
 #!/bin/sh
 # Packer provisioner: installs packages, the CodeDeploy agent, the shared
 # runtime library the watchdogs source, the Spot interruption drain (script +
-# unit, uploaded by the file provisioner), and pre-pulls the valkey and
-# grampsweb images.
+# unit, uploaded by the file provisioner), and pre-pulls the valkey, proxy
+# and grampsweb images.
 # Runs as root via: sudo -E sh '{{.Path}}'
 # Env vars injected by Packer: REGION, ECR_REPO_URL, GRAMPS_WEB_VERSION
 # Files staged under /tmp: everything the file provisioner in
@@ -131,32 +131,35 @@ install_runtime_lib() {
   rm -f /tmp/gramps-runtime.sh
 }
 
-# The valkey pin's single source is the compose file; extract it rather than
-# carrying a second copy here (a second copy is exactly what drifts). Fail
+# A service's pin has a single source, the compose file; extract it rather
+# than carrying a second copy here (a second copy is exactly what drifts). Fail
 # loudly on a miss -- a silent one would quietly put Docker Hub back on the
 # boot-critical path.
-valkey_image_pin() {
-  _valkey_image_pin_image="$(awk '$1 == "valkey:" { in_svc = 1 }
+compose_image_pin() {
+  _compose_image_pin_image="$(awk -v svc="$1:" '$1 == svc { in_svc = 1 }
     in_svc && $1 == "image:" { print $2; exit }' /tmp/docker-compose.yml)"
-  if [ -z "$_valkey_image_pin_image" ]; then
-    log "ERROR: could not extract the valkey image from docker-compose.yml"
+  if [ -z "$_compose_image_pin_image" ]; then
+    log "ERROR: could not extract the $1 image from docker-compose.yml"
     exit 1
   fi
-  echo "$_valkey_image_pin_image"
+  echo "$_compose_image_pin_image"
 }
 
-# Pre-pulling valkey and grampsweb keeps both off the boot-critical path of a
-# replacement: with the tags already local, `compose up` needs no pull at all
+# Pre-pulling valkey, the proxy and grampsweb keeps all three off the
+# boot-critical path of a replacement: with the tags already local, `compose up` needs no pull at all
 # on a same-version launch, which is every launch except a deliberate version
 # bump. The grampsweb pull is non-fatal when the tag is absent -- a fresh
 # account has an empty ECR repository, and the AMI build must still succeed;
 # the deploy pulls it the ordinary way (CodeDeploy's AfterInstall) once the
 # app pipeline has actually pushed a version.
 pull_images() {
-  _pull_images_valkey_image="$(valkey_image_pin)"
+  _pull_images_valkey_image="$(compose_image_pin valkey)"
+  _pull_images_proxy_image="$(compose_image_pin proxy)"
   rm -f /tmp/docker-compose.yml
   log "Pulling valkey image: ${_pull_images_valkey_image}..."
   docker pull "$_pull_images_valkey_image"
+  log "Pulling proxy image: ${_pull_images_proxy_image}..."
+  docker pull "$_pull_images_proxy_image"
 
   if [ -n "${ECR_REPO_URL:-}" ] && [ -n "${GRAMPS_WEB_VERSION:-}" ]; then
     log "Pulling grampsweb image: ${ECR_REPO_URL}:${GRAMPS_WEB_VERSION}..."

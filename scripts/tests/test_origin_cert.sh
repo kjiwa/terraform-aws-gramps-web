@@ -1,6 +1,6 @@
 #!/bin/sh
 # Tests for build/app/bundle/scripts/origin_cert.sh: export, key decryption,
-# the serial stamp, and --restart. A stub aws serves a certificate generated
+# the serial stamp, and --reload. A stub aws serves a certificate generated
 # here with a key encrypted under whatever passphrase the script sent.
 set -eu
 
@@ -67,16 +67,16 @@ main() {
     "$(grep -c 'BEGIN CERTIFICATE' "$ORIGIN_TLS_DIR/fullchain.pem")"
   assert_eq "key file is mode 600" "600" "$(stat -c%a "$ORIGIN_TLS_DIR/privkey.pem" 2>/dev/null || stat -f%Lp "$ORIGIN_TLS_DIR/privkey.pem")"
   assert_eq "no work files are left behind" "" "$(find "$ORIGIN_TLS_DIR" -name 'work.*')"
-  assert_eq "no restart without --restart" "0" "$(count_calls 'docker')"
+  assert_eq "no reload without --reload" "0" "$(count_calls 'docker')"
 
-  run_script --restart
+  run_script --reload
   assert_eq "unchanged serial does not export" "0" "$(count_calls 'export-certificate')"
-  assert_eq "unchanged serial does not restart" "0" "$(count_calls 'docker')"
+  assert_eq "unchanged serial does not reload" "0" "$(count_calls 'docker')"
 
   STUB_SERIAL=02
-  run_script --restart
+  run_script --reload
   assert_eq "new serial exports" "1" "$(count_calls 'export-certificate')"
-  assert_eq "new serial restarts grampsweb" "1" "$(count_calls 'docker compose .* restart grampsweb')"
+  assert_eq "new serial reloads the proxy" "1" "$(count_calls 'docker compose .* exec -T proxy nginx -s reload')"
   assert_eq "stamp tracks the serial" "02" "$(cat "$ORIGIN_TLS_DIR/serial")"
 
   assert_status "unknown flag is refused" 2 sh "$SCRIPT" --bogus

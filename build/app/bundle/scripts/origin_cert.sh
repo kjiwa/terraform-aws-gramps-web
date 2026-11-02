@@ -1,7 +1,7 @@
 #!/bin/sh
-# Exports the origin's ACM certificate to disk for gunicorn to serve (mounted
-# into grampsweb by docker-compose.yml). Run once by after_install.sh and then
-# daily by origin-cert.timer with --restart: ACM renews the certificate in
+# Exports the origin's ACM certificate to disk for the proxy to serve (mounted
+# into the proxy by docker-compose.yml). Run once by after_install.sh and then
+# daily by origin-cert.timer with --reload: ACM renews the certificate in
 # place under the same ARN, so a changed serial is the only renewal signal.
 # Installed as /usr/local/bin/gramps-origin-cert.
 set -eu
@@ -71,21 +71,21 @@ install_pem_files() {
   mv "$1/fullchain.pem" "$TLS_DIR/fullchain.pem"
 }
 
-restart_app() {
-  log "Restarting grampsweb..."
+reload_proxy() {
+  log "Reloading the proxy..."
   docker compose \
     --env-file "$COMPOSE_DIR/.env" \
     -f "$COMPOSE_DIR/docker-compose.yml" \
-    restart grampsweb
+    exec -T proxy nginx -s reload
 }
 
 main() {
-  _main_restart=false
+  _main_reload=false
   case "${1:-}" in
-  --restart) _main_restart=true ;;
+  --reload) _main_reload=true ;;
   "") ;;
   *)
-    echo "usage: gramps-origin-cert [--restart]" >&2
+    echo "usage: gramps-origin-cert [--reload]" >&2
     exit 2
     ;;
   esac
@@ -108,8 +108,8 @@ main() {
   printf '%s\n' "$_main_serial" >"$STAMP"
   log "Certificate installed."
 
-  if [ "$_main_restart" = true ]; then
-    restart_app
+  if [ "$_main_reload" = true ]; then
+    reload_proxy
   fi
 }
 
