@@ -29,3 +29,11 @@ load_instance_env() {
   : "${GRAMPS_DATA_ROOT:?GRAMPS_DATA_ROOT missing from $INSTANCE_ENV}"
   : "${COMPOSE_DIR:?COMPOSE_DIR missing from $INSTANCE_ENV}"
 }
+
+# Docker keeps every image a deploy ever pulled, which slowly fills the root
+# volume. A healthy deploy drops unused images older than a day; the day keeps
+# the previous release local for a quick rollback.
+prune_images() {
+  docker image prune --all --force --filter until=24h >/dev/null ||
+    log "Image prune failed; unused images stay on the root volume."
+}
