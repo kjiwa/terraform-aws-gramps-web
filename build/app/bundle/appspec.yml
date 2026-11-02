@@ -4,6 +4,8 @@ os: linux
 files:
   - source: docker-compose.yml
     destination: /opt/gramps
+  - source: nginx.conf
+    destination: /opt/gramps
 
 file_exists_behavior: OVERWRITE
 

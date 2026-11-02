@@ -1,6 +1,6 @@
 #!/bin/sh
 # Compares the hand-pinned versions no ecosystem bot covers against their
-# upstream latest, and prints the ones behind. The eight pins:
+# upstream latest, and prints the ones behind. The nine pins:
 #   Packer CLI (build/ami/build.sh)
 #   packer-plugin-amazon (build/ami/gramps-ami.pkr.hcl)
 #   Terraform CLI (.terraform-version)
@@ -9,6 +9,7 @@
 #   Gramps Web (the gramps.version default in variables.tf)
 #   gitleaks (ci.yml's GITLEAKS_VERSION)
 #   valkey (build/app/bundle/docker-compose.yml)
+#   nginx (build/app/bundle/docker-compose.yml)
 # Dependabot has no Packer ecosystem and nothing else reads these, so they
 # would rot silently.
 # Read-only: never edits a pin itself, since every one of these has a manual
@@ -134,6 +135,17 @@ check_valkey() {
   fi
 }
 
+# nginx's stable line has an even minor ("1.30-alpine"); odd minors are the
+# mainline and not what the proxy tracks.
+check_nginx() {
+  _check_nginx_current="$(sed -n 's#.*docker\.io/library/nginx:\([0-9.]*-alpine\).*#\1#p' \
+    "$REPO_ROOT/build/app/bundle/docker-compose.yml" | head -n 1)"
+  _check_nginx_latest="$(curl -fsSL "https://hub.docker.com/v2/repositories/library/nginx/tags?page_size=100&name=alpine" |
+    jq -r '.results[].name' | grep -E '^1\.[0-9]*[02468]-alpine$' |
+    sort -t. -k2,2n | tail -n1)"
+  report "nginx (docker-compose.yml)" "$_check_nginx_current" "$_check_nginx_latest"
+}
+
 main() {
   require curl jq sed
 
@@ -145,6 +157,7 @@ main() {
   check_gitleaks
   check_gramps_web
   check_valkey
+  check_nginx
 
   [ "$BEHIND" -eq 0 ] || die "$BEHIND pin(s) behind upstream"
   log "all pins up to date"

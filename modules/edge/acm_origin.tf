@@ -2,7 +2,7 @@
 # trusted certificate. Unlike the viewer certificates in acm.tf this one is
 # exportable and lives in the instance's own region (default provider): the
 # instance exports it at deploy time (build/app/bundle/scripts/origin_cert.sh)
-# and gunicorn serves it directly.
+# and the nginx proxy serves it.
 resource "aws_acm_certificate" "origin" {
   domain_name       = local.origin_domain
   validation_method = "DNS"

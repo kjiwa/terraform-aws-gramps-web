@@ -189,7 +189,7 @@ data "aws_iam_policy_document" "instance" {
     ]
   }
 
-  # ACM: export the origin certificate (and nothing else) so gunicorn can
+  # ACM: export the origin certificate (and nothing else) so the proxy can
   # serve TLS. Export needs the key, hence the single-ARN scope; Describe lets
   # origin_cert.sh read the serial it uses to skip a no-op re-export.
   statement {

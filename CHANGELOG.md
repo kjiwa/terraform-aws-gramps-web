@@ -4,9 +4,25 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-01
+
+### Fixed
+
+- CloudFront returned 504s on `/api` since 1.4.0: gunicorn terminated the origin TLS, so one worker serving a slow request (a cold thumbnail, an export) could not accept new connections, and CloudFront abandons a connect after 2 s.
+
 ### Changed
 
+- An nginx proxy (`proxy`, pinned `nginx:1.30-alpine`) terminates the origin TLS and forwards to gunicorn over the compose network. The origin certificate is mounted into it instead of grampsweb, and the renewal timer reloads nginx (`gramps-origin-cert --reload`, was `--restart`) instead of restarting the app.
+- gunicorn runs 3 workers (was 1). Gramps Web API 3.25 starts workers with `--preload`, so they share memory; measured use on 26.11.0 with one worker was 1.45 GiB of 4 GiB.
+- `gramps.version` defaults to 26.11.0. Gramps Web 26.11.0 removes semantic search; no input in this module referred to it.
+- The AMI build pre-pulls the proxy image, and `scripts/check-pins.sh` tracks its stable line.
 - README Cost section: the table adds an estimated minimal column and the origin certificate row, and the `active` input's sleeping cost reads 10 to 16 USD. The README no longer lists the archive provider, which no resource uses.
+
+### Upgrade
+
+1. Run `terraform apply` with the `release-1.5` branch as `source_branch`.
+2. Run `scripts/deploy.sh gramps`. Docker pulls the nginx image from Docker Hub once.
+3. Rebuild the AMI and pin it, which restores the pre-pull.
 
 ## [1.4.0] - 2026-10-26
 

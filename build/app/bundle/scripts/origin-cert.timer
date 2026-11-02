@@ -1,5 +1,5 @@
 # ACM certificates last 198 days and renew in place; a daily check is far
-# inside that window. The jitter keeps the restart off the top of the hour.
+# inside that window. The jitter keeps the reload off the top of the hour.
 [Unit]
 Description=Daily origin TLS certificate refresh
 
