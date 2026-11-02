@@ -1,7 +1,7 @@
 name: ci
 
-# Terraform config scanning (trivy) and secret scanning (gitleaks) on PRs and
-# pushes to the default branch. Runs on every change; the path-filtered suites
+# Terraform config scanning (trivy) on PRs and pushes to the default branch;
+# secret scanning (gitleaks) runs in privacy.yml. Runs on every change; the path-filtered suites
 # live in terraform.yml, web.yml and python.yml. Accepted trivy findings for
 # this stack's cost/architecture trade-offs live in .trivyignore.
 
@@ -28,22 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-      # The CLI, not gitleaks-action: the action calls the PR-commits API with
-      # GITHUB_TOKEN, which this workflow's contents-only permissions deny, and
-      # Dependabot and fork PRs get a read-only token regardless.
-      - env:
-          GITLEAKS_VERSION: 8.30.1
-        run: |
-          cd "$RUNNER_TEMP"
-          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
-          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -fsSLO "${base}/${tarball}"
-          curl -fsSLO "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-          grep " ${tarball}\$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c -
-          tar -xz -C /usr/local/bin -f "${tarball}" gitleaks
-      - run: gitleaks git . --redact --no-banner -v
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
