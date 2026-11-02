@@ -3,7 +3,7 @@
 # search index, users, secret) and the S3 media bucket (photo/document
 # originals).
 #
-# The daily AWS Backup plan (modules/storage/backup.tf) already takes a
+# The daily AWS Backup plan (keel's data-volume backup.tf) already takes a
 # crash-consistent recovery point of both at 03:00 UTC and copies it wherever
 # the module's backup.mode points. This script is for what a schedule cannot
 # do: take a restore point RIGHT NOW, and take an APP-CONSISTENT one.
@@ -76,7 +76,7 @@ readonly LOG_PREFIX="backup"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 
-# The role and plan modules/storage/backup.tf declares. Repo constants, as in
+# The role and plan keel's data-volume backup.tf declares. Repo constants, as in
 # deploy.sh: neither is worth an output, and a name mismatch fails loudly rather
 # than silently (start-backup-job 404s on the role; resolve_plan dies on the plan).
 readonly BACKUP_ROLE_NAME="gramps-web-backup"

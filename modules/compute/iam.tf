@@ -102,7 +102,7 @@ data "aws_iam_policy_document" "instance" {
   # KMS: use the data volume's CMK, so user-data can attach it at boot.
   #
   # Only exists when the volume HAS a CMK (backup.mode = cross_account; see
-  # modules/storage/main.tf for why that is the only mode that needs one). Null
+  # keel's data-volume main.tf for why that is the only mode that needs one). Null
   # elsewhere, where the volume is on the AWS-managed aws/ebs key, whose policy
   # grants the account's principals implicitly -- which is exactly why this
   # statement is easy to forget: the aws/ebs volume attaches with no KMS grant

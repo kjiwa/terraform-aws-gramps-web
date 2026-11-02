@@ -80,7 +80,7 @@ byte match, both inside the backup account.
 
 Under `backup.mode = "cross_account"`, the destination vault's ARN is built
 from `backup.region`, not the module's region
-(`modules/storage/backup.tf`) — so as long as your deployment sets
+(keel's `data-volume`, `backup.tf`) — so as long as your deployment sets
 `backup.region` to a region different from the module's own (check your
 configuration; the default is `us-east-2` for the cross modes), every off-site
 copy already sits outside a `<region>` outage, not just outside the
@@ -226,7 +226,7 @@ Idempotent; safe to re-run.
 `data_volume_snapshot_id` (`variables.tf`) creates the
 data volume from an EC2 **snapshot** ID at first apply — the disaster-rebuild
 path for a brand-new environment, not a live one (see
-`modules/storage/main.tf` for why a live environment can't use this
+keel's `data-volume` `main.tf` for why a live environment can't use this
 to "restore"). **That's what [az-move.md](az-move.md) is for.**
 
 `restore.sh offsite` produces a *volume*, not a snapshot, so to feed
@@ -266,7 +266,7 @@ If you would rather recover *into* the workload account, `restore.sh
 copy-back <recovery-point-arn>` does both halves in one command: pulls the
 off-site recovery point back into the local vault, then restores it using the
 same `gramps-web-backup` role the daily plan uses. It is enabled by
-`aws_backup_vault_policy.this` in `modules/storage/backup.tf` (the workload
+`aws_backup_vault_policy.this` in keel's `data-volume` `backup.tf` (the workload
 vault accepting copies) and the symmetric KMS grant on its vault key.
 
 ```sh
@@ -304,8 +304,8 @@ Consequences worth planning around:
 
 `FAILED`, or `Failed to unshare snapshot`, means a key grant is wrong. Start
 with the volume key's `BackupAccountCopySnapshot` and `BackupAccountCreateGrant`
-statements (`modules/storage/main.tf`) and the local vault key's cross-account
-grant (`modules/storage/backup.tf`). Every KMS grant in this design fails at
+statements (keel's `data-volume` `main.tf`) and the local vault key's
+cross-account grant (its `backup.tf`). Every KMS grant in this design fails at
 **runtime**, not plan time — a plan proves nothing here.
 
 ## In-app stored backups

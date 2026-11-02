@@ -18,7 +18,7 @@ readonly REPO="$TESTS_DIR/../.."
 # kept byte-identical) and the tests themselves are out of scope.
 sources() {
   find "$REPO/scripts" "$REPO/build" "$REPO/modules" \( -name '*.sh' -o -name '*.sh.tftpl' \) \
-    -not -path '*/node_modules/*' -not -path "$REPO/scripts/keel/*" \
+    -not -path '*/node_modules/*' -not -path '*/.terraform/*' -not -path "$REPO/scripts/keel/*" \
     -not -path "$REPO/scripts/tests/*"
 }
 

@@ -26,14 +26,77 @@ variables {
   }
 }
 
-run "data_volume_carries_the_project_tag_without_default_tags" {
+run "local_backup_names_the_live_vault_and_selects_volume_and_bucket" {
   command = plan
   module {
     source = "./modules/storage"
   }
 
   assert {
-    condition     = aws_ebs_volume.this.tags["Project"] == "gramps-web"
-    error_message = "The instance IAM policy conditions on aws:ResourceTag/Project, so the volume must be tagged explicitly."
+    condition     = module.data_volume.vault_name == "gramps-web-backup"
+    error_message = "The data-volume module must reproduce the live vault name."
+  }
+  assert {
+    condition     = output.backup_vault_name == "gramps-web-backup"
+    error_message = "modules/storage must keep exporting backup_vault_name."
+  }
+  assert {
+    condition     = output.backup_resource_count == 2
+    error_message = "The selection covers the data volume and the media bucket."
+  }
+  assert {
+    condition     = output.backup_remote_retention_days == 35 && output.backup_copy_vault_arn == null && output.ebs_kms_key_arn == null
+    error_message = "Local mode has no copy vault and no data-volume key."
+  }
+}
+
+run "disabled_backup_has_no_vault" {
+  command = plan
+  module {
+    source = "./modules/storage"
+  }
+  variables {
+    backup = {
+      mode                  = "disabled"
+      region                = ""
+      account_id            = ""
+      retention_days        = 35
+      remote_retention_days = 0
+      dest_vault_name       = ""
+      schedule              = "cron(0 5 * * ? *)"
+    }
+  }
+
+  assert {
+    condition     = output.backup_vault_name == null
+    error_message = "Disabled backups create no vault."
+  }
+}
+
+run "cross_account_constructs_the_destination_vault_arn" {
+  command = plan
+  module {
+    source = "./modules/storage"
+  }
+  variables {
+    backup_region = "us-east-2"
+    backup = {
+      mode                  = "cross_account"
+      region                = "us-east-2"
+      account_id            = "000000000000"
+      retention_days        = 35
+      remote_retention_days = 90
+      dest_vault_name       = "gramps-web-backup-replica"
+      schedule              = "cron(0 5 * * ? *)"
+    }
+  }
+
+  assert {
+    condition     = output.backup_copy_vault_arn == "arn:aws:backup:us-east-2:000000000000:backup-vault:gramps-web-backup-replica"
+    error_message = "The destination vault ARN is account + region + name."
+  }
+  assert {
+    condition     = output.backup_remote_retention_days == 90
+    error_message = "The remote retention must come through unchanged."
   }
 }
