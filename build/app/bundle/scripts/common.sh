@@ -31,9 +31,11 @@ load_instance_env() {
 }
 
 # Docker keeps every image a deploy ever pulled, which slowly fills the root
-# volume. A healthy deploy drops unused images older than a day; the day keeps
-# the previous release local for a quick rollback.
+# volume. A healthy deploy drops every unused image. No age filter: Docker
+# filters on image creation time, which is old for upstream images, so it would
+# not spare the previous release anyway. A rollback is a deploy, and a deploy
+# pulls what it needs.
 prune_images() {
-  docker image prune --all --force --filter until=24h >/dev/null ||
+  docker image prune --all --force >/dev/null ||
     log "Image prune failed; unused images stay on the root volume."
 }

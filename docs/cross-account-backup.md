@@ -381,7 +381,7 @@ that is the design working, not a bug:
 
 ```
 Error: Instance cannot be destroyed
-  Resource module.gramps_web.module.storage.aws_ebs_volume.this has lifecycle.prevent_destroy
+  Resource module.gramps_web.module.storage.module.data_volume.aws_ebs_volume.this has lifecycle.prevent_destroy
 ```
 
 Create the key, and nothing else:

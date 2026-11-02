@@ -66,7 +66,7 @@ readonly LOG_PREFIX="azmove"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 
-readonly VOL_RESOURCE_SUFFIX="module.storage.aws_ebs_volume.this"
+readonly VOL_RESOURCE_SUFFIX="module.storage.module.data_volume.aws_ebs_volume.this"
 # cmd_finish's waits: 60 ticks x 10s = ~10 min each, which covers a Spot
 # capacity wait plus the on-boot CodeDeploy run.
 readonly WAIT_TICKS=60

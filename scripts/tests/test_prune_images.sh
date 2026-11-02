@@ -1,6 +1,6 @@
 #!/bin/sh
 # Tests for prune_images in build/app/bundle/scripts/common.sh: it prunes
-# images older than a day after a healthy deploy and never fails the hook.
+# images after a healthy deploy and never fails the hook.
 set -eu
 
 TESTS_DIR="$(
@@ -34,8 +34,8 @@ lib() {
 
 main() {
   lib 'prune_images'
-  assert_eq "prunes unused images older than a day" \
-    "docker image prune --all --force --filter until=24h" "$(cat "$STUB_LOG")"
+  assert_eq "prunes every unused image" \
+    "docker image prune --all --force" "$(cat "$STUB_LOG")"
 
   assert_status "a failing prune does not fail the hook" 0 \
     env STUB_DOCKER_FAIL=1 sh -c ". '$COMMON'; log() { :; }; prune_images"

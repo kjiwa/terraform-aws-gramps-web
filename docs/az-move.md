@@ -71,7 +71,7 @@ wait can take several minutes.
 
 Backs up Terraform state to `azmove-state-<timestamp>.json`, sanity-checks the
 new volume (right AZ, right tag), finds the volume's state address (the one
-ending `module.storage.aws_ebs_volume.this`, whatever your root named the
+ending `module.storage.module.data_volume.aws_ebs_volume.this`, whatever your root named the
 module), removes the old volume from state (the AWS resource is left intact),
 and imports the new one under the same address. Confirmation required before
 the state edit.

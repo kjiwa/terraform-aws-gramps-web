@@ -13,13 +13,13 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Changed
 
 - `modules/storage` delegates the data volume, its key and AWS Backup to `modules/data-volume` of terraform-aws-keel (v0.2.0). `modules/monitoring` delegates the backup-failure alert, the disk alarm and the availability dashboard to `modules/host-alarms` of terraform-aws-status-page (v0.3.0). `moved` blocks map every existing address, so no resource is replaced. The media bucket stays in `modules/storage`.
-- The disk alarm gains OK notifications to the alerts topic.
+- The disk alarm gains OK notifications to the alerts topic, and with `status.volume_metrics` off it treats missing data as not breaching instead of ignoring it, so a silent publisher leaves the alarm OK.
 - `modules/status` and `modules/availability` use terraform-aws-status-page v0.3.0.
 - The `asg.tf` memory comment records the measured peak of about 2.0 GiB with 3 workers.
 
 ### Upgrade
 
-1. Run `terraform apply` with the `release-1.6` branch as `source_branch`. The plan is moves only, plus the disk alarm gaining OK notifications.
+1. Run `terraform apply` with the `release-1.6` branch as `source_branch`. The plan is moves only, plus the disk alarm's OK notifications and missing-data handling.
 2. Run `scripts/deploy.sh gramps`.
 3. No AMI rebuild is needed.
 
