@@ -31,9 +31,9 @@ run "build_role_deletes_only_what_it_tagged" {
       length(setintersection(s.actions, [
         "ec2:DeleteVolume", "ec2:DeleteSnapshot", "ec2:DeleteSecurityGroup", "ec2:DeregisterImage", "ec2:ModifyInstanceAttribute",
       ])) == 0
-      if s.sid == "PackerBuild"
+      if length(s.condition) == 0 || !anytrue([for c in s.condition : c.variable == "ec2:ResourceTag/Name"])
     ])
-    error_message = "The PackerBuild statement must not hold DeleteVolume, DeleteSnapshot, DeleteSecurityGroup, DeregisterImage or ModifyInstanceAttribute."
+    error_message = "No statement without an ec2:ResourceTag/Name condition may hold DeleteVolume, DeleteSnapshot, DeleteSecurityGroup, DeregisterImage or ModifyInstanceAttribute."
   }
   assert {
     condition = anytrue([

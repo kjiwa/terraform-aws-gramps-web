@@ -14,7 +14,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Changed
 
-- The ECR lifecycle policy keeps 15 tagged manifests (3 pushes) instead of 40, which saves about $1 a month.
+- The ECR lifecycle policy keeps 15 tagged manifests (3 pushes) instead of 40, which should save about $1 a month (estimate from 20 GB-months at $2.05).
 - The `spot` variable description records the measured reclaim rate and outage length.
 - `modules/storage` uses terraform-aws-keel v0.2.1, which guards the data volume's keys and the backup vault with `prevent_destroy`. `modules/status`, `modules/availability` and `modules/monitoring` use terraform-aws-status-page v0.3.2.
 

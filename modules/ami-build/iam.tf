@@ -97,8 +97,9 @@ data "aws_iam_policy_document" "ami_build" {
   }
 
   # Destructive actions are limited by the Name tag the template stamps on the
-  # AMIs and snapshots it publishes (tags in gramps-ami.pkr.hcl), so the build
-  # cannot touch the data volume or its snapshots.
+  # AMIs and snapshots it publishes (tags in gramps-ami.pkr.hcl), so a mistaken
+  # call cannot reach the data volume or its snapshots. ec2:CreateTags is not
+  # scoped, so this guards against accidents, not a hostile build.
   statement {
     sid       = "PackerPublishedImages"
     effect    = "Allow"
