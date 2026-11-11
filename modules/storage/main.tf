@@ -5,7 +5,7 @@ data "aws_caller_identity" "current" {}
 # nothing. The vaults use a customer-managed key because the media bucket's S3
 # recovery points are re-encrypted under it and must be readable cross-account.
 module "data_volume" {
-  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/data-volume?ref=v0.2.0"
+  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/data-volume?ref=v0.2.1"
 
   name_prefix = "gramps-web"
   volume_name = "gramps-data"

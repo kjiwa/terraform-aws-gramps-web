@@ -4,6 +4,25 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-11
+
+### Fixed
+
+- The data volume is formatted only when `blkid` exits 2 (no filesystem). Any other `blkid` failure aborts user data instead of running `mkfs.ext4` over a volume that may hold data.
+- The AMI-build role's `DeleteSnapshot` and `DeregisterImage` are limited to resources tagged `Name = gramps-web-base`, and `DeleteVolume`, `DeleteSecurityGroup` and `ModifyInstanceAttribute` to `Name = packer-builder-gramps-web`, so a build cannot delete the data volume or its snapshots. The Packer template tags the builder's volumes to match.
+- Stale comments and README refs in `modules/ami-build`, `modules/web-build`, `modules/compute` and the examples.
+
+### Changed
+
+- The ECR lifecycle policy keeps 15 tagged manifests (3 pushes) instead of 40, which should save about $1 a month (estimate from 20 GB-months at $2.05).
+- The `spot` variable description records the measured reclaim rate and outage length.
+- `modules/storage` uses terraform-aws-keel v0.2.1, which guards the data volume's keys and the backup vault with `prevent_destroy`. `modules/status`, `modules/availability` and `modules/monitoring` use terraform-aws-status-page v0.3.2.
+
+### Upgrade
+
+- `terraform init -upgrade`, then apply. The ECR lifecycle policy, the AMI-build role policy, the dashboard and query definitions and the Lambda code change; nothing is replaced.
+- Move `source_branch` along with the tag (`release-1.6`).
+
 ## [1.6.1] - 2026-11-04
 
 ### Fixed

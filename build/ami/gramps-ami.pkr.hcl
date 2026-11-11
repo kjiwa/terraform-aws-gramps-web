@@ -132,6 +132,10 @@ source "amazon-ebs" "gramps" {
     Name = "packer-builder-gramps-web"
   }
 
+  run_volume_tags = {
+    Name = "packer-builder-gramps-web"
+  }
+
   tags = local.gramps_ami_tags
 }
 
@@ -179,6 +183,10 @@ source "amazon-ebs" "gramps_x86" {
 
   # See the arm64 source for the tag semantics.
   run_tags = {
+    Name = "packer-builder-gramps-web"
+  }
+
+  run_volume_tags = {
     Name = "packer-builder-gramps-web"
   }
 

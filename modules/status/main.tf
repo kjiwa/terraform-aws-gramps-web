@@ -3,7 +3,7 @@
 # facts) and config.js.tpl. The root attaches the origins and behaviors
 # outputs to the primary distribution in modules/edge.
 module "core" {
-  source = "git::https://github.com/kjiwa/terraform-aws-status-page.git//modules/status?ref=v0.3.1"
+  source = "git::https://github.com/kjiwa/terraform-aws-status-page.git//modules/status?ref=v0.3.2"
 
   name_prefix      = "gramps-web"
   path_prefix      = "/_status"
