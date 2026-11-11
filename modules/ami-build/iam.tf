@@ -67,10 +67,6 @@ data "aws_iam_policy_document" "ami_build" {
       "ec2:CreateTags",
       "ec2:DeleteKeyPair",
       "ec2:DeleteLaunchTemplate",
-      "ec2:DeleteSecurityGroup",
-      "ec2:DeleteSnapshot",
-      "ec2:DeleteVolume",
-      "ec2:DeregisterImage",
       "ec2:DescribeImageAttribute",
       "ec2:DescribeImages",
       "ec2:DescribeInstances",
@@ -88,7 +84,6 @@ data "aws_iam_policy_document" "ami_build" {
       "ec2:DescribeTags",
       "ec2:DescribeVolumes",
       "ec2:ModifyImageAttribute",
-      "ec2:ModifyInstanceAttribute",
       "ec2:RegisterImage",
       "ec2:RunInstances",
     ]
@@ -98,6 +93,37 @@ data "aws_iam_policy_document" "ami_build" {
       test     = "StringEquals"
       variable = "aws:RequestedRegion"
       values   = [var.region]
+    }
+  }
+
+  # Destructive actions are limited by the Name tag the template stamps on the
+  # AMIs and snapshots it publishes (tags in gramps-ami.pkr.hcl), so the build
+  # cannot touch the data volume or its snapshots.
+  statement {
+    sid       = "PackerPublishedImages"
+    effect    = "Allow"
+    actions   = ["ec2:DeleteSnapshot", "ec2:DeregisterImage"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/Name"
+      values   = ["gramps-web-base"]
+    }
+  }
+
+  # The builder's own instance, volumes and security group (run_tags and
+  # run_volume_tags in gramps-ami.pkr.hcl).
+  statement {
+    sid       = "PackerBuilderResources"
+    effect    = "Allow"
+    actions   = ["ec2:DeleteSecurityGroup", "ec2:DeleteVolume", "ec2:ModifyInstanceAttribute"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/Name"
+      values   = ["packer-builder-gramps-web"]
     }
   }
 

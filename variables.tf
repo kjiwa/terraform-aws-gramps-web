@@ -143,7 +143,7 @@ variable "monthly_budget_usd" {
 }
 
 variable "spot" {
-  description = "Spot capacity (object). enabled runs Spot only at a fraction of the On-Demand price, and each reclaim costs an outage of a few minutes plus an alert email. allocation_strategy is price-capacity-optimized, capacity-optimized or lowest-price; rightsize needs lowest-price."
+  description = "Spot capacity (object). enabled runs Spot only at a fraction of the On-Demand price, and each reclaim costs an outage plus an alert email. Measured on a prod deployment, 2026-10-21 to 2026-11-11: 10 reclaims (about 3 a week), a median outage of 4 minutes, p90 6 minutes, range 2 to 7. allocation_strategy is price-capacity-optimized, capacity-optimized or lowest-price; rightsize needs lowest-price."
   type = object({
     enabled             = optional(bool, false)
     allocation_strategy = optional(string, "price-capacity-optimized")

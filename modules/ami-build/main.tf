@@ -23,7 +23,7 @@ resource "aws_cloudwatch_log_group" "build" {
 
 resource "aws_codebuild_project" "ami" {
   name         = local.name
-  description  = "Builds the gramps-web-base AMIs (Packer, both architectures). Roll out by pinning ami_ids and applying."
+  description  = "Builds the gramps-web-base AMIs (Packer, both architectures). A new build rolls out on the next apply unless ami_ids pins the previous ones."
   service_role = aws_iam_role.ami_build.arn
 
   source {

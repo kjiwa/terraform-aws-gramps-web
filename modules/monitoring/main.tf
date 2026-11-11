@@ -1,7 +1,7 @@
 # Recorder (canary, alerts topic, episodes and Spot logs, change log) and the
 # backup alert, disk alarm and dashboard live in the status-page modules.
 module "availability" {
-  source = "git::https://github.com/kjiwa/terraform-aws-status-page.git//modules/availability?ref=v0.3.1"
+  source = "git::https://github.com/kjiwa/terraform-aws-status-page.git//modules/availability?ref=v0.3.2"
 
   name_prefix      = "gramps-web"
   metric_namespace = "GrampsWeb"
@@ -33,7 +33,7 @@ module "availability" {
 }
 
 module "host_alarms" {
-  source = "git::https://github.com/kjiwa/terraform-aws-status-page.git//modules/host-alarms?ref=v0.3.1"
+  source = "git::https://github.com/kjiwa/terraform-aws-status-page.git//modules/host-alarms?ref=v0.3.2"
 
   name_prefix      = "gramps-web"
   metric_namespace = "GrampsWeb"

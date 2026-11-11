@@ -20,9 +20,8 @@ resource "aws_iam_role" "web_build" {
 }
 
 # Least privilege: write only the buckets this build project actually
-# publishes to today (see main.tf's header comment on why that's narrower
-# than the full set of pages build/web builds), invalidate only the primary
-# distribution, use only this one connection. No terraform/state access --
+# publishes to, invalidate only the primary distribution, use only this one
+# connection. No terraform/state access --
 # every destination arrives as a plaintext env var on the project.
 data "aws_iam_policy_document" "web_build" {
   statement {

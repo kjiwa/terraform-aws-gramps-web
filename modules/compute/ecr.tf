@@ -42,11 +42,11 @@ resource "aws_ecr_lifecycle_policy" "gramps" {
       },
       {
         rulePriority = 2
-        description  = "Keep only the last 40 tagged manifests (tagStatus=any counts every index/platform/attestation manifest per push, not app versions)"
+        description  = "Keep only the last 15 tagged manifests, 3 pushes of 5 (tagStatus=any counts every index/platform/attestation manifest per push, not app versions)"
         selection = {
           tagStatus   = "any"
           countType   = "imageCountMoreThan"
-          countNumber = 40
+          countNumber = 15
         }
         action = { type = "expire" }
       },

@@ -28,10 +28,10 @@ log() {
 
 attach_volume() {
   log "Waiting for EBS volume $EBS_VOLUME_ID to become available..."
-  # The actual handoff point during an instance replacement: nothing else
-  # forces the outgoing instance to detach first. The CLI's default wait
-  # budget is the whole window before this script fails and the CodeDeploy
-  # BeforeInstall hook blocks forever waiting for boot glue that never lands.
+  # The handoff point during an instance replacement: nothing forces the
+  # outgoing instance to detach first, so this waits out the CLI's default
+  # budget. If it times out, this script fails and the CodeDeploy
+  # BeforeInstall hook blocks waiting for boot glue that never lands.
   aws ec2 wait volume-available \
     --volume-ids "$EBS_VOLUME_ID" \
     --region "$REGION"
@@ -80,12 +80,23 @@ wait_for_block_device() {
 }
 
 # First boot on a fresh volume only; a restored or reattached volume already
-# carries its filesystem and is left alone.
+# carries its filesystem and is left alone. blkid exits 2 when it finds no
+# filesystem; any other failure is a probe error, and formatting on it could
+# wipe the data.
 format_if_needed() {
-  if ! blkid "$1" >/dev/null 2>&1; then
-    log "Formatting ext4 on $1..."
-    mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0 "$1"
-  fi
+  _fmt_rc=0
+  blkid "$1" >/dev/null 2>&1 || _fmt_rc=$?
+  case "$_fmt_rc" in
+    0) ;;
+    2)
+      log "Formatting ext4 on $1..."
+      mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0 "$1"
+      ;;
+    *)
+      log "ERROR: blkid $1 exited $_fmt_rc; refusing to format"
+      return 1
+      ;;
+  esac
 }
 
 # By UUID, not device path: the NVMe namespace number is not stable across
