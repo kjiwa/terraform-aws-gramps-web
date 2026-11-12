@@ -221,7 +221,7 @@ variable "source_branch" {
 variable "gramps" {
   description = "Gramps Web build (object). version is the upstream grampsweb image tag; base_image its repository without a tag; addons are addons-source directory names baked in; web_repo and web_ref optionally replace the frontend with a fork build (web_ref pins a commit); addons_source_repo is the addons Git URL."
   type = object({
-    version            = optional(string, "26.11.0")
+    version            = optional(string, "26.11.2")
     base_image         = optional(string, "ghcr.io/gramps-project/grampsweb")
     addons             = optional(list(string), [])
     addons_source_repo = optional(string, "https://github.com/gramps-project/addons-source.git")
