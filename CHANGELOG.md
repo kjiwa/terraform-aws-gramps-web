@@ -9,6 +9,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Changed
 
 - The rightsize watchdog calls keel v0.3.0's shared `rightsize-check` (vendored in `scripts/keel`, baked into the AMI as `/usr/local/bin/keel-rightsize-check`) for the decision. It replaces only when the cheapest eligible Spot pool costs at most 0.75 of this instance's type and the Spot placement score for that pool is at least 5 out of 10. Any API failure means stay, including an unreadable placement score.
+- The watchdog logs any check failure other than an ordinary decline.
 - The instance policy's `RightsizePriceReads` statement adds `ec2:GetSpotPlacementScores`.
 - `modules/status`, `modules/availability` and `modules/monitoring` use terraform-aws-status-page v0.7.0. The `moved` blocks follow the availability module's renamed schedule rule, target and Lambda permission.
 

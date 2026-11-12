@@ -68,6 +68,10 @@ set_unhealthy /gramps-web/prod/last-rightsize" \
     "keel-rightsize-check us-east-1 gramps-web 3" \
     "$(run_watchdog 2 "$(echo "$_main_full" | tr ' ' '\n')")"
 
+  assert_eq "check error is logged" \
+    "[rightsize-watchdog] keel-rightsize-check exited 2; staying." \
+    "$(INSTANCE_ENV="$WORK/instance.env" STUB_CHECK_EXIT=2 sh "$WATCHDOG" 2>&1)"
+
   assert_eq "missing LAST_RIGHTSIZE_PARAM: no check, drain, detach or health call" \
     "" \
     "$(run_watchdog 0 REGION=us-east-1 COMPOSE_DIR=/opt/gramps)"

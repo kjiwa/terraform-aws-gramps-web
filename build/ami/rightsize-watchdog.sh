@@ -66,10 +66,23 @@ drain() {
   sync
 }
 
+# Exit 1 is the check's ordinary "stay"; any other status (usage, missing
+# binary, an API error under its set -e) also stays but is logged, so a broken
+# check shows in the journal.
+check_says_replace() {
+  _check_says_replace_status=0
+  keel-rightsize-check "$REGION" "$ASG_NAME" "${RIGHTSIZE_MIN_UPTIME_HOURS:-3}" ||
+    _check_says_replace_status=$?
+  [ "$_check_says_replace_status" -eq 0 ] && return 0
+  [ "$_check_says_replace_status" -eq 1 ] ||
+    log "keel-rightsize-check exited $_check_says_replace_status; staying."
+  return 1
+}
+
 main() {
   load_env
   require_env
-  keel-rightsize-check "$REGION" "$ASG_NAME" "${RIGHTSIZE_MIN_UPTIME_HOURS:-3}" || exit 0
+  check_says_replace || exit 0
   log "A cheaper Spot pool is available; replacing this instance."
   drain
   # set_unhealthy writes the marker parameter BEFORE the ASG call, same
