@@ -4,6 +4,18 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-11-11
+
+### Changed
+
+- `gramps.version` defaults to 26.11.2. Gramps Web 26.11.1 and 26.11.2 change only the frontend (drag-and-drop reordering, search as you type, a MapLibre worker fix, the age-at-death column); the API and database schema are unchanged.
+- The README's "Upgrading Gramps Web" covers release notes, the pre-upgrade snapshot, the base AMI and rollback.
+
+### Upgrade
+
+- `terraform init -upgrade`, then apply. A root that sets `gramps.version` changes nothing; one that follows the default updates the build projects' and the status Lambda's `GRAMPS_WEB_VERSION`; nothing is replaced. Run the deploy to roll the image out.
+- Move `source_branch` along with the tag (`release-1.6`).
+
 ## [1.6.2] - 2026-11-11
 
 ### Fixed
