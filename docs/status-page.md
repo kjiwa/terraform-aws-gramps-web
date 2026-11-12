@@ -1,6 +1,6 @@
 # Status page
 
-Enabled with `status.enabled`. The page, the Lambda API, and the availability recorder come from [terraform-aws-status-page](https://github.com/kjiwa/terraform-aws-status-page) (pinned at v0.1.1); this module configures them for Gramps Web. The page lives at `/_status` on the site: a single-file shell that Terraform uploads to S3, fetching its data from a Lambda behind the same CloudFront distribution. No CodeBuild step publishes it.
+Enabled with `status.enabled`. The page, the Lambda API, and the availability recorder come from [terraform-aws-status-page](https://github.com/kjiwa/terraform-aws-status-page); this module configures them for Gramps Web. The page lives at `/_status` on the site: a single-file shell that Terraform uploads to S3, fetching its data from a Lambda behind the same CloudFront distribution. No CodeBuild step publishes it.
 
 What this module supplies:
 

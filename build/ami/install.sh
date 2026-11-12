@@ -1,8 +1,8 @@
 #!/bin/sh
 # Packer provisioner: installs packages, the CodeDeploy agent, the shared
-# runtime library the watchdogs source, the Spot interruption drain (script +
-# unit, uploaded by the file provisioner), and pre-pulls the valkey, proxy
-# and grampsweb images.
+# runtime library the watchdogs source, keel's rightsize check, the Spot
+# interruption drain (script + unit, uploaded by the file provisioner), and
+# pre-pulls the valkey, proxy and grampsweb images.
 # Runs as root via: sudo -E sh '{{.Path}}'
 # Env vars injected by Packer: REGION, ECR_REPO_URL, GRAMPS_WEB_VERSION
 # Files staged under /tmp: everything the file provisioner in
@@ -131,6 +131,13 @@ install_runtime_lib() {
   rm -f /tmp/gramps-runtime.sh
 }
 
+# Run by rightsize-watchdog.sh; vendored from keel (scripts/keel).
+install_rightsize_check() {
+  log "Installing keel-rightsize-check..."
+  install -m 0755 /tmp/rightsize-check.sh /usr/local/bin/keel-rightsize-check
+  rm -f /tmp/rightsize-check.sh
+}
+
 # A service's pin has a single source, the compose file; extract it rather
 # than carrying a second copy here (a second copy is exactly what drifts). Fail
 # loudly on a miss -- a silent one would quietly put Docker Hub back on the
@@ -229,6 +236,7 @@ main() {
   install_codedeploy_agent
   install_cloudwatch_agent
   install_runtime_lib
+  install_rightsize_check
   install_unit spot-drain gramps-spot-drain service
   install_unit health-watchdog gramps-health-watchdog service timer
   install_unit rightsize-watchdog gramps-rightsize-watchdog service timer

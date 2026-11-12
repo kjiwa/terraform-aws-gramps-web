@@ -108,9 +108,9 @@ CodePipeline and CodeBuild pull `build/` and `scripts/` from `repo_url` on `sour
 
 ```hcl
 module "gramps_web" {
-  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.6.3"
+  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.7.0"
   repo_url      = "https://github.com/<you>/terraform-aws-gramps-web"
-  source_branch = "release-1.6"
+  source_branch = "release-1.7"
   # ...
 }
 ```
@@ -146,7 +146,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
    terraform init
    terraform apply -target=module.gramps_web.aws_codeconnections_connection.github \
      -var primary_domain=example.org -var alert_email=you@example.org \
-     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.6
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.7
    ```
 
 4. Approve it: in the console, open Developer Tools, Settings, Connections, update the pending `gramps-web` connection, and install the GitHub app on your fork.
@@ -155,7 +155,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
    ```sh
    terraform apply -var primary_domain=example.org -var alert_email=you@example.org \
-     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.6
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.7
    ```
 
    The first apply in a new account can fail while the Auto Scaling group launches its first instance ("Authentication Failure"); re-running the apply succeeded in testing. The status page at `/_status` is off by default: set `status = { enabled = true }` on the module (`min_role` picks who may view it) after raising the account's Lambda concurrency quota (see the `status` input).
