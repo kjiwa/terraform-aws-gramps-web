@@ -197,9 +197,10 @@ build {
   sources = ["source.amazon-ebs.gramps", "source.amazon-ebs.gramps_x86"]
 
   # The shared runtime library, the Spot interruption drain, app health
-  # watchdog, rightsize watchdog, and pre-warm sweep (scripts + systemd
-  # units); install.sh moves these into place and enables the units. Staged
-  # in /tmp because the file provisioner runs as the unprivileged SSH user.
+  # watchdog, rightsize watchdog, pre-warm sweep (scripts + systemd units)
+  # and keel's rightsize check; install.sh moves these into place and enables
+  # the units. Staged in /tmp because the file provisioner runs as the
+  # unprivileged SSH user.
   provisioner "file" {
     sources = [
       "${path.root}/gramps-runtime.sh",
@@ -211,6 +212,7 @@ build {
       "${path.root}/rightsize-watchdog.sh",
       "${path.root}/rightsize-watchdog.service",
       "${path.root}/rightsize-watchdog.timer",
+      "${path.root}/../../scripts/keel/rightsize-check.sh",
       "${path.root}/prewarm.sh",
       "${path.root}/prewarm.service",
       "${path.root}/../app/bundle/docker-compose.yml",

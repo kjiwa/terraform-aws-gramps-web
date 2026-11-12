@@ -268,14 +268,15 @@ data "aws_iam_policy_document" "instance" {
     resources = ["arn:aws:cloudfront::${local.account_id}:distribution/*"]
   }
 
-  # rightsize-watchdog.sh resolves the ASG's instance requirements to types and
-  # compares Spot prices. All three are read-only and support no resource-level
-  # permissions.
+  # keel-rightsize-check resolves the ASG's instance requirements to types,
+  # compares Spot prices and reads the placement score. All four are read-only
+  # and support no resource-level permissions.
   statement {
     sid    = "RightsizePriceReads"
     effect = "Allow"
     actions = [
       "ec2:DescribeSpotPriceHistory",
+      "ec2:GetSpotPlacementScores",
       "ec2:GetInstanceTypesFromInstanceRequirements",
       "autoscaling:DescribeAutoScalingGroups",
     ]

@@ -166,3 +166,27 @@ run "instance_exports_only_the_origin_certificate" {
     error_message = "The origin certificate ARN must be published at /gramps-web/<env>/origin-certificate-arn."
   }
 }
+
+# Every service:operation scripts/keel/rightsize-check.sh calls through the aws CLI.
+run "instance_policy_covers_the_rightsize_check" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+
+  assert {
+    condition = alltrue([
+      for a in [
+        "ec2:GetSpotPlacementScores",
+        "ec2:DescribeSpotPriceHistory",
+        "ec2:GetInstanceTypesFromInstanceRequirements",
+        "autoscaling:DescribeAutoScalingGroups",
+      ] :
+      anytrue([
+        for s in data.aws_iam_policy_document.instance.statement :
+        s.sid == "RightsizePriceReads" && contains(s.actions, a)
+      ])
+    ])
+    error_message = "The instance policy's RightsizePriceReads statement must grant every action the vendored rightsize check calls."
+  }
+}

@@ -4,7 +4,7 @@ Hosted zone, cost budget, and audit trail from [terraform-aws-keel](https://gith
 
 ```hcl
 module "gramps_web" {
-  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.6.3"
+  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.7.0"
   repo_url      = "https://github.com/<you>/terraform-aws-gramps-web"
   source_branch = "release-1.3"
   providers = {

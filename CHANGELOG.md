@@ -4,6 +4,24 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-12
+
+### Changed
+
+- The rightsize watchdog calls keel v0.3.0's shared `rightsize-check` (vendored in `scripts/keel`, baked into the AMI as `/usr/local/bin/keel-rightsize-check`) for the decision. It replaces only when the cheapest eligible Spot pool costs at most 0.75 of this instance's type and the Spot placement score for that pool is at least 5 out of 10. Any API failure means stay, including an unreadable placement score.
+- The instance policy's `RightsizePriceReads` statement adds `ec2:GetSpotPlacementScores`.
+- `modules/status`, `modules/availability` and `modules/monitoring` use terraform-aws-status-page v0.7.0. The `moved` blocks follow the availability module's renamed schedule rule, target and Lambda permission.
+
+### Fixed
+
+- The rightsize watchdog drains only when `REGION`, `LAST_RIGHTSIZE_PARAM` and `COMPOSE_DIR` are all set. A missing `LAST_RIGHTSIZE_PARAM` used to abort after the containers stopped and the data volume detached.
+
+### Upgrade
+
+- Rebuild the AMI and pin the new ids; the rightsize check ships in the image.
+- `terraform init -upgrade`, then apply. The availability schedule rule and Lambda permission are replaced; the instance policy, Lambda code and environment update in place.
+- Move `source_branch` along with the tag (`release-1.7`).
+
 ## [1.6.3] - 2026-11-11
 
 ### Changed

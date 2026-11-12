@@ -98,17 +98,17 @@ moved {
 
 moved {
   from = aws_cloudwatch_event_rule.canary
-  to   = module.availability.aws_cloudwatch_event_rule.canary
+  to   = module.availability.aws_cloudwatch_event_rule.schedule
 }
 
 moved {
   from = aws_cloudwatch_event_target.canary
-  to   = module.availability.aws_cloudwatch_event_target.canary
+  to   = module.availability.aws_cloudwatch_event_target.schedule
 }
 
 moved {
   from = aws_lambda_permission.canary
-  to   = module.availability.aws_lambda_permission.canary
+  to   = module.availability.aws_lambda_permission.schedule
 }
 
 moved {

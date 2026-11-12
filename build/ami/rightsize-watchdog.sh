@@ -1,26 +1,15 @@
 #!/bin/sh
-# Scale-back to the cheapest acceptable Spot pool. The ASG's allocation
-# strategy picks a pool only at LAUNCH: once a stockout of the cheap tier
-# lands us on a bigger type, nothing native ever moves us back when the cheap
-# pools recover, so a one-day stockout becomes a month of paying for a large.
-# The accepted pattern is periodic forced replacement; this makes it
-# conditional.
+# Actuation half of the scale-back to the cheapest Spot pool. Fires on
+# gramps-rightsize-watchdog.timer; the schedule comes from rightsize.schedule
+# via a user-data drop-in, from daily (the default) down to hourly. Whether to
+# replace is decided by keel-rightsize-check (keel's scripts/rightsize-check.sh,
+# baked into the AMI); this script acts only on its exit 0.
 #
-# Fires on gramps-rightsize-watchdog.timer; the schedule comes from
-# rightsize.schedule via a user-data drop-in, from daily (the
-# default) down to hourly. Spot instances only: On-Demand has no allocation
-# to re-run. It resolves the ASG's own instance requirements to the eligible
-# types and compares current Spot prices in this instance's AZ: if the
-# cheapest eligible pool costs at most PRICE_MARGIN of what this instance's
-# type does (cheaper_pool_exists), it acts; otherwise it does nothing. No type
-# list is kept anywhere, so newly released types are judged by price alone.
-# Any API failure means stay. The uptime cooldown (uptime_ok) bounds an
-# aggressive schedule from turning into replacement churn: skip until the
-# instance is RIGHTSIZE_MIN_UPTIME_HOURS old (default 3). A failed rightsize starts the clock over on the
-# replacement, so this bounds worst-case churn under ANY schedule; a daily
-# schedule never hits it.
+# It drains only once every input the replacement needs is present: a missing
+# one would abort after the containers stop and the volume detaches, an outage
+# with no replacement queued.
 #
-# Past the guard it stops the data-volume writers cleanly (same reasoning and
+# On replace it stops the data-volume writers cleanly (same reasoning and
 # grace budget as gramps-spot-drain), syncs, detaches the data volume, and
 # marks the instance Unhealthy so the ASG replaces it. Like any outage over
 # ~2 min, the replacement trips the site-down alarm, so the DOWN/RECOVERED
@@ -34,27 +23,18 @@
 # Installed by build/ami/install.sh as /usr/local/bin/gramps-rightsize-watchdog.
 set -eu
 
-readonly INSTANCE_ENV="/etc/gramps/instance.env"
+readonly INSTANCE_ENV="${INSTANCE_ENV:-/etc/gramps/instance.env}"
 readonly ASG_NAME="gramps-web"
-# Intra-tier price spread is about 10-20%, so a 25% margin keeps the cheap
-# tier from trading places in a loop; t8i and every .large sit 30% or more
-# above it and clear the bar.
-readonly PRICE_MARGIN="0.75"
 
 log() {
   echo "[rightsize-watchdog] $*"
 }
 
 # shellcheck source=gramps-runtime.sh
-. /usr/local/lib/gramps-runtime.sh
+. "${GRAMPS_RUNTIME_LIB:-/usr/local/lib/gramps-runtime.sh}"
 
-# $1 = path under meta-data.
-imds() {
-  curl -sf -m 2 -H "X-aws-ec2-metadata-token: $TOKEN" "$IMDS/meta-data/$1"
-}
-
-# Boot glue not finished: type checking a half-configured instance helps
-# nobody; the timer fires again next tick.
+# Boot glue not finished: acting on a half-configured instance helps nobody;
+# the timer fires again next tick.
 load_env() {
   [ -f "$INSTANCE_ENV" ] || exit 0
   # shellcheck disable=SC1090
@@ -62,95 +42,16 @@ load_env() {
   load_runtime_env
 }
 
-# Rightsizing re-runs SPOT allocation; on an On-Demand instance
-# (spot_enabled = false) there is no cheaper pool to fall back to, only a
-# pointless daily replacement. An unreadable IMDS also says no (the safe
-# direction: no churn, retry next tick).
-is_spot() {
-  _is_spot_lifecycle="$(imds instance-life-cycle)" || _is_spot_lifecycle=""
-  [ "$_is_spot_lifecycle" = "spot" ]
+require_env() {
+  [ -n "${REGION:-}" ] || skip_unset REGION
+  [ -n "${LAST_RIGHTSIZE_PARAM:-}" ] || skip_unset LAST_RIGHTSIZE_PARAM
+  [ -n "${COMPOSE_DIR:-}" ] || skip_unset COMPOSE_DIR
 }
 
-# Union of the types every ASG override's InstanceRequirements resolves to,
-# space-separated. The requirements pass unchanged from
-# describe-auto-scaling-groups to get-instance-types-from-instance-requirements.
-eligible_types() {
-  _eligible_types_types=""
-  _eligible_types_count="$(aws autoscaling describe-auto-scaling-groups --region "$REGION" \
-    --auto-scaling-group-names "$ASG_NAME" \
-    --query 'length(AutoScalingGroups[0].MixedInstancesPolicy.LaunchTemplate.Overrides)' \
-    --output text)" || return 1
-  _eligible_types_req="$(mktemp)"
-  _eligible_types_all=""
-  _eligible_types_i=0
-  while [ "$_eligible_types_i" -lt "$_eligible_types_count" ]; do
-    aws autoscaling describe-auto-scaling-groups --region "$REGION" \
-      --auto-scaling-group-names "$ASG_NAME" \
-      --query "AutoScalingGroups[0].MixedInstancesPolicy.LaunchTemplate.Overrides[$_eligible_types_i].InstanceRequirements" \
-      --output json >"$_eligible_types_req" || {
-      rm -f "$_eligible_types_req"
-      return 1
-    }
-    _eligible_types_types="$(aws ec2 get-instance-types-from-instance-requirements \
-      --region "$REGION" \
-      --architecture-types arm64 x86_64 --virtualization-types hvm \
-      --instance-requirements "file://$_eligible_types_req" \
-      --query 'InstanceTypes[].InstanceType' --output text)" || {
-      rm -f "$_eligible_types_req"
-      return 1
-    }
-    _eligible_types_all="$_eligible_types_all $_eligible_types_types"
-    _eligible_types_i=$((_eligible_types_i + 1))
-  done
-  rm -f "$_eligible_types_req"
-  echo "$_eligible_types_all" | tr -s ' \t' '\n' | sort -u | tr '\n' ' '
-}
-
-# $1 = own instance type, $2 = AZ. Succeeds when the cheapest eligible Spot
-# pool in the AZ costs at most PRICE_MARGIN of the own type's price. Any
-# failure or missing price says no (stay).
-cheaper_pool_exists() {
-  _cheaper_pool_exists_types="$(eligible_types)" || {
-    log "Could not resolve the eligible types; staying."
-    return 1
-  }
-  [ -n "$_cheaper_pool_exists_types" ] || return 1
-  # shellcheck disable=SC2086
-  _cheaper_pool_exists_prices="$(aws ec2 describe-spot-price-history --region "$REGION" \
-    --availability-zone "$2" --start-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --product-descriptions "Linux/UNIX" --instance-types $_cheaper_pool_exists_types \
-    --query 'SpotPriceHistory[].[InstanceType,SpotPrice]' \
-    --output text)" || {
-    log "Could not read Spot prices; staying."
-    return 1
-  }
-  _cheaper_pool_exists_verdict="$(echo "$_cheaper_pool_exists_prices" | awk -v own="$1" -v margin="$PRICE_MARGIN" '
-    NF == 2 {
-      if ($1 == own) own_price = $2
-      if (min_price == "" || $2 + 0 < min_price + 0) { min_price = $2; min_type = $1 }
-    }
-    END {
-      if (own_price == "" || min_price == "") { print "unknown"; exit }
-      printf "own=%s cheapest=%s(%s) ", own_price, min_type, min_price
-      print (min_price + 0 <= own_price * margin) ? "replace" : "stay"
-    }')"
-  log "$1 in $2: $_cheaper_pool_exists_verdict"
-  case "$_cheaper_pool_exists_verdict" in
-  *replace) return 0 ;;
-  esac
-  return 1
-}
-
-# Churn bound. /proc/uptime's first field is seconds with a fractional part;
-# strip it for POSIX arithmetic.
-uptime_ok() {
-  _uptime_ok_min_uptime_h="${RIGHTSIZE_MIN_UPTIME_HOURS:-3}"
-  _uptime_ok_min_uptime_s=$((_uptime_ok_min_uptime_h * 3600))
-  read -r _uptime_ok_uptime_s _ </proc/uptime
-  _uptime_ok_uptime_s="${_uptime_ok_uptime_s%.*}"
-  [ "$_uptime_ok_uptime_s" -ge "$_uptime_ok_min_uptime_s" ] && return 0
-  log "A cheaper pool exists for $1, but uptime (${_uptime_ok_uptime_s}s) is under the ${_uptime_ok_min_uptime_h}h cooldown; retrying next tick."
-  return 1
+# $1 = name of the missing variable.
+skip_unset() {
+  log "$1 is unset in instance.env; not rightsizing."
+  exit 0
 }
 
 # 30s grace each, mirroring gramps-spot-drain: the default 10s would cut a
@@ -165,30 +66,17 @@ drain() {
   sync
 }
 
-replace_instance() {
-  _replace_instance_instance_id="$(imds instance-id)"
-  log "A cheaper pool exists for $1; replacing $_replace_instance_instance_id."
+main() {
+  load_env
+  require_env
+  keel-rightsize-check "$REGION" "$ASG_NAME" "${RIGHTSIZE_MIN_UPTIME_HOURS:-3}" || exit 0
+  log "A cheaper Spot pool is available; replacing this instance."
   drain
-  # LAST_RIGHTSIZE_PARAM comes from instance.env (terraform's compute module
-  # owns the parameter; see watchdog_markers.tf); set_unhealthy writes it
-  # BEFORE the ASG call, same contract as health-watchdog.sh's marker.
+  # set_unhealthy writes the marker parameter BEFORE the ASG call, same
+  # contract as health-watchdog.sh's marker.
   detach_data_volume
   set_unhealthy "$LAST_RIGHTSIZE_PARAM"
   log "Marked Unhealthy; the ASG replaces from the cheapest available pool."
-}
-
-main() {
-  load_env
-
-  TOKEN="$(imds_token)"
-  readonly TOKEN
-
-  is_spot || exit 0
-  _main_current_type="$(imds instance-type)"
-  _main_az="$(imds placement/availability-zone)" || exit 0
-  cheaper_pool_exists "$_main_current_type" "$_main_az" || exit 0
-  uptime_ok "$_main_current_type" || exit 0
-  replace_instance "$_main_current_type"
 }
 
 main "$@"
