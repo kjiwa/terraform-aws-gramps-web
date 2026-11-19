@@ -20,6 +20,24 @@ updates:
     groups:
       providers:
         patterns: ["*"]
+    cooldown:
+      # Our own tags: the default 3-day cooldown is for third-party supply chain.
+      exclude: ["*terraform-aws-keel*"]
+
+  # Tracks keel refs only, so the provider floors in versions.tf stay broad.
+  - package-ecosystem: terraform
+    directories:
+      - /modules/*
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-name: "*terraform-aws-keel*"
+    cooldown:
+      # Our own tags: the default 3-day cooldown is for third-party supply chain.
+      exclude: ["*terraform-aws-keel*"]
+    groups:
+      keel:
+        patterns: ["*"]
 
   - package-ecosystem: npm
     directory: /build/web
