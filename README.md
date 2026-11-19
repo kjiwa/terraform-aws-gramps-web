@@ -115,6 +115,8 @@ module "gramps_web" {
 }
 ```
 
+A Dependabot minor or major bump of the module ref also needs `source_branch` moved to the matching release branch.
+
 The builds run that branch's code with deploy permissions, so point `repo_url` at a repository you trust.
 
 ## Requirements

@@ -135,7 +135,7 @@ deletable from the workload account, inverting the isolation.
 keel's `state-bucket` module runs once per account for exactly this reason.
 
 **If the Backup OU's SCP denies `s3:PutLifecycleConfiguration`, this step fails**
-with AccessDenied on `aws_s3_bucket_lifecycle_configuration.tfstate_web`, and it
+with AccessDenied on `aws_s3_bucket_lifecycle_configuration.this`, and it
 will fail again on every later apply — so applying before attaching the SCP is
 not a workaround. Fix the SCP instead. An SCP protecting backup data has no
 reason to reach the state bucket: AWS Backup keeps S3 recovery points in
@@ -149,10 +149,12 @@ building this account's bucket somewhere else):
 
 ```hcl
 module "state" {
-  source      = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/state-bucket?ref=v0.2.1"
+  source      = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/state-bucket?ref=<keel-tag>"
   bucket_name = "<state-bucket>"
 }
 ```
+
+`<keel-tag>` is the terraform-aws-keel tag that `examples/minimal/main.tf` pins.
 
 Create the bucket by hand (chicken-and-egg: the module manages the bucket its
 own state lives in), point a partial `backend "s3" {}` at it, then import and
@@ -164,7 +166,7 @@ aws s3api create-bucket --bucket <state-bucket> --region <backup_region> \
   --create-bucket-configuration LocationConstraint=<backup_region>
 
 terraform -chdir=<backup-root> init -backend-config=backend.hcl
-terraform -chdir=<backup-root> import module.state.aws_s3_bucket.tfstate_web <state-bucket>
+terraform -chdir=<backup-root> import module.state.aws_s3_bucket.this <state-bucket>
 terraform -chdir=<backup-root> apply
 ```
 
@@ -179,7 +181,7 @@ Add keel's `backup-vault-account` module to `<backup-root>`:
 
 ```hcl
 module "backup_vault" {
-  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/backup-vault-account?ref=v0.2.1"
+  source = "git::https://github.com/kjiwa/terraform-aws-keel.git//modules/backup-vault-account?ref=<keel-tag>"
 
   name_prefix                   = "gramps-web"
   vault_name                    = "gramps-web-backup-replica"
