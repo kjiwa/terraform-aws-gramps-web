@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- `modules/storage` uses terraform-aws-keel v0.3.0 `data-volume`. Dependabot tracks keel refs in `modules/*` with no cooldown.
+
 ## [1.7.0] - 2026-11-12
 
 ### Changed
