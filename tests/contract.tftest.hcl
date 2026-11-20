@@ -716,3 +716,27 @@ run "ami_max_age_days_must_be_a_positive_whole_number" {
   }
   expect_failures = [var.ami_max_age_days]
 }
+
+run "origin_secret_must_be_32_to_64_alphanumerics" {
+  command = plan
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+  variables {
+    origin_secret = "too-short"
+  }
+  expect_failures = [var.origin_secret]
+}
+
+run "origin_secret_extra_must_be_32_to_64_alphanumerics" {
+  command = plan
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+  variables {
+    origin_secret_extra = ["AbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAb"]
+  }
+  expect_failures = [var.origin_secret_extra]
+}

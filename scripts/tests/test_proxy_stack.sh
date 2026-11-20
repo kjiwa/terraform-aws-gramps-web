@@ -92,16 +92,17 @@ compose() {
   COMPOSE_PROJECT_NAME="$TAG" docker compose --env-file "$WORK/.env" -f "$WORK/docker-compose.yml" "$@"
 }
 
-# validate PHASE: validate_service.sh against the stack.
+# validate: validate_service.sh, with its URLs and timeout substituted in a copy,
+# against the stack.
 validate() {
   mkdir -p "$WORK/shim"
   # shellcheck disable=SC2016 # the shim's own variables
   printf '#!/bin/sh\n[ "$1 $2" = "image prune" ] && exit 0\nexec %s "$@"\n' "$(command -v docker)" >"$WORK/shim/docker"
   chmod +x "$WORK/shim/docker"
+  _validate_script="$(validate_copy "$BUNDLE/scripts" "$WORK/validate" "http://127.0.0.1:$PORT_LOOP/" "https://127.0.0.1:$PORT_TLS/" 20)"
   _validate_status=0
   PATH="$WORK/shim:$PATH" INSTANCE_ENV="$WORK/instance.env" DEPLOY_LOG="$WORK/deploy.log" COMPOSE_PROJECT_NAME="$TAG" \
-    VALIDATE_URL="http://127.0.0.1:$PORT_LOOP/" VALIDATE_TLS_URL="https://127.0.0.1:$PORT_TLS/" VALIDATE_TIMEOUT=20 \
-    sh "$BUNDLE/scripts/validate_service.sh" >"$WORK/validate.log" 2>&1 || _validate_status=$?
+    sh "$_validate_script" >"$WORK/validate.log" 2>&1 || _validate_status=$?
   [ "$_validate_status" -eq 0 ] || tail -n 8 "$WORK/validate.log" >&2
   [ "$_validate_status" -eq 0 ] && echo ok || echo failed
 }
@@ -111,18 +112,54 @@ status() {
   curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "$@" || true
 }
 
+# await_status WANT ARGS...: the status of the request, polled for up to five
+# seconds until it is WANT (nginx -s reload returns before the new workers serve).
+await_status() {
+  _await_status_want="$1"
+  shift
+  _await_status_i=0
+  while [ "$_await_status_i" -lt 10 ]; do
+    _await_status_got="$(status "$@")"
+    [ "$_await_status_got" != "$_await_status_want" ] || break
+    _await_status_i=$((_await_status_i + 1))
+    sleep 0.5
+  done
+  echo "$_await_status_got"
+}
+
+# change_proxy_service: edits the compose copy so that `up -d` recreates the proxy.
+change_proxy_service() {
+  python3 - "$WORK/docker-compose.yml" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace("\n  proxy:\n", "\n  proxy:\n    labels:\n      probe: recreate\n", 1)
+open(p, "w").write(s)
+PY
+}
+
 # proxy_state: "<status> restarts=<n>" of the proxy container.
 proxy_state() {
   docker inspect -f '{{.State.Status}} restarts={{.RestartCount}}' "$(compose ps -q proxy)"
 }
 
-start_stack() {
+# run_start: application_start.sh; prints its exit status on the last line.
+run_start() {
   INSTANCE_ENV="$WORK/instance.env" DEPLOY_LOG="$WORK/deploy.log" COMPOSE_PROJECT_NAME="$TAG" \
-    sh "$BUNDLE/scripts/application_start.sh" >"$WORK/start.log" 2>&1 || {
+    sh "$BUNDLE/scripts/application_start.sh" >"$WORK/start.log" 2>&1 && echo 0 || echo 1
+}
+
+start_stack() {
+  [ "$(run_start)" = 0 ] || {
     echo "FAIL: application_start.sh failed" >&2
     tail -n 20 "$WORK/start.log" >&2
     FAILURES=$((FAILURES + 1))
   }
+}
+
+# proxy_id: the proxy container's id.
+proxy_id() {
+  compose ps -q proxy
 }
 
 # stays_up PHASE: ten seconds on, the proxy is running, never restarted.
@@ -145,6 +182,7 @@ main() {
   readonly IMAGE
   setup
 
+  # 1. First start, log mode.
   render log "$SECRET_A" ""
   start_stack
   stays_up "log mode, first start"
@@ -153,15 +191,51 @@ main() {
   assert_eq "log mode: the loopback listener serves" "200" "$(status "http://127.0.0.1:$PORT_LOOP/")"
   assert_eq "log mode: validate_service.sh passes" "ok" "$(validate)"
 
+  # 2. The update path: maps rewritten in place under the running proxy, no
+  # recreate, then application_start.sh (nginx -t and reload).
+  _main_id="$(proxy_id)"
+  render enforce "$SECRET_B" ""
+  start_stack
+  assert_eq "in-place update: the proxy container is the same" "$_main_id" "$(proxy_id)"
+  assert_eq "in-place update: no header is 403" "403" "$(await_status 403 "https://127.0.0.1:$PORT_TLS/")"
+  assert_eq "in-place update: the new secret is served" "200" "$(await_status 200 -H "X-Origin-Verify: $SECRET_B" "https://127.0.0.1:$PORT_TLS/")"
+  assert_eq "in-place update: the old secret is refused" "403" "$(await_status 403 -H "X-Origin-Verify: $SECRET_A" "https://127.0.0.1:$PORT_TLS/")"
+  assert_eq "in-place update: validate_service.sh passes" "ok" "$(validate)"
+
+  # 3. A recreate with changed maps.
   render enforce "$SECRET_B" "$EXTRA,$SECRET_A"
   compose up -d --force-recreate proxy >/dev/null 2>&1
   start_stack
   stays_up "enforce mode, proxy recreated with changed maps"
   assert_eq "enforce: 443 without the header is 403" "403" "$(status "https://127.0.0.1:$PORT_TLS/")"
-  assert_eq "enforce: the new secret is served" "200" "$(status -H "X-Origin-Verify: $SECRET_B" "https://127.0.0.1:$PORT_TLS/")"
+  assert_eq "enforce: the current secret is served" "200" "$(status -H "X-Origin-Verify: $SECRET_B" "https://127.0.0.1:$PORT_TLS/")"
   assert_eq "enforce: an extra secret is served" "200" "$(status -H "X-Origin-Verify: $EXTRA" "https://127.0.0.1:$PORT_TLS/")"
   assert_eq "enforce: the loopback listener serves without it" "200" "$(status "http://127.0.0.1:$PORT_LOOP/")"
   assert_eq "enforce mode: validate_service.sh passes" "ok" "$(validate)"
+
+  # 4. A map nginx rejects fails the deploy; the running proxy is untouched,
+  # even though a changed service makes `up -d` want to recreate it.
+  _main_id="$(proxy_id)"
+  cp "$WORK/docker-compose.yml" "$WORK/docker-compose.yml.good"
+  change_proxy_service
+  cp "$WORK/origin-secret.map" "$WORK/origin-secret.map.good"
+  printf '"broken" 1\ndefault 0;\n' >"$WORK/origin-secret.map"
+  assert_eq "an invalid map fails the deploy" "1" "$(run_start)"
+  assert_eq "the pre-flight error is in the deploy output" "yes" "$(grep -q 'emerg' "$WORK/start.log" && echo yes || echo no)"
+  assert_eq "an invalid map: the same proxy container" "$_main_id" "$(proxy_id)"
+  assert_eq "an invalid map: it still serves the previous secret" "200" "$(status -H "X-Origin-Verify: $SECRET_B" "https://127.0.0.1:$PORT_TLS/")"
+  cp "$WORK/origin-secret.map.good" "$WORK/origin-secret.map"
+
+  # 5. The v1.8.0 failure: a nginx.conf without map_hash_bucket_size, with the
+  # real 48-character secret, fails the pre-flight, not the running proxy.
+  cp "$WORK/nginx.conf" "$WORK/nginx.conf.good"
+  grep -v '^map_hash_bucket_size' "$WORK/nginx.conf.good" >"$WORK/nginx.conf"
+  assert_eq "a config that cannot hash the secret fails the deploy" "1" "$(run_start)"
+  assert_eq "the nginx error names the hash bucket" "yes" "$(grep -q 'map_hash_bucket_size' "$WORK/start.log" && echo yes || echo no)"
+  assert_eq "the same proxy container is still running" "$_main_id" "$(proxy_id)"
+  assert_eq "and still answers on 443" "200" "$(status -H "X-Origin-Verify: $SECRET_B" "https://127.0.0.1:$PORT_TLS/")"
+  cp "$WORK/nginx.conf.good" "$WORK/nginx.conf"
+  cp "$WORK/docker-compose.yml.good" "$WORK/docker-compose.yml"
   finish
 }
 

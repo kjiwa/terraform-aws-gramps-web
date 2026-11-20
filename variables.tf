@@ -87,6 +87,10 @@ variable "origin_secret" {
   type        = string
   default     = null
   sensitive   = true
+  validation {
+    condition     = var.origin_secret == null || can(regex("^[A-Za-z0-9]{32,64}$", var.origin_secret))
+    error_message = "origin_secret must be 32 to 64 characters, letters and digits only."
+  }
 }
 
 variable "origin_secret_extra" {
@@ -94,6 +98,10 @@ variable "origin_secret_extra" {
   type        = list(string)
   default     = []
   sensitive   = true
+  validation {
+    condition     = alltrue([for v in var.origin_secret_extra : can(regex("^[A-Za-z0-9]{32,64}$", v))])
+    error_message = "Every origin_secret_extra value must be 32 to 64 characters, letters and digits only."
+  }
 }
 
 variable "origin_secret_enforce" {

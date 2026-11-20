@@ -17,9 +17,9 @@ SCRIPT_DIR="$(
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 
-readonly URL="${VALIDATE_URL:-http://localhost/}"
-readonly TLS_URL="${VALIDATE_TLS_URL:-https://localhost/}"
-readonly TIMEOUT="${VALIDATE_TIMEOUT:-240}"
+readonly URL="http://localhost/"
+readonly TLS_URL="https://localhost/"
+readonly TIMEOUT=240
 
 # Busts the CloudFront cache for the app's own non-hashed static assets
 # (global.css, fonts/*, images/*, webawesome-styles/*, manifest.json) so a
