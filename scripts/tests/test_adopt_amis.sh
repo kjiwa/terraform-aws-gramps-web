@@ -135,9 +135,30 @@ main() {
   reset_fixtures
   write_group 2 3
   run_adopt >/dev/null
-  assert_eq "a group pinned behind the latest version is held: versions written" "2" "$(calls 'create-launch-template-version')"
-  assert_eq "a held group is not repinned" "0" "$(calls 'update-auto-scaling-group')"
-  assert_eq "a held group is not refreshed" "0" "$(calls 'start-instance-refresh')"
+  assert_eq "arm64 pinned behind its latest: both versions are still written" "2" "$(calls 'create-launch-template-version')"
+  assert_eq "the unheld x86_64 template is repinned alone" "1" "$(calls 'update-auto-scaling-group')"
+  assert_eq "the held arm64 pin stays at 2" "1" "$(grep 'update-auto-scaling-group' "$STUB_LOG" | grep -c '"LaunchTemplateId":"lt-arm","Version":"2"')"
+  assert_eq "x86_64 moves to 4" "1" "$(grep 'update-auto-scaling-group' "$STUB_LOG" | grep -c '"LaunchTemplateId":"lt-x86","Version":"4"')"
+  assert_eq "an old running AMI of the held arch starts no refresh" "0" "$(calls 'start-instance-refresh')"
+  assert_eq "the hold is logged loudly" "1" "$(grep -c 'HELD' "$WORK/out.log")"
+  assert_eq "the hold is published as a metric" "1" "$(calls 'put-metric-data .*AmiAdoptionHeld.*Value=1')"
+
+  reset_fixtures
+  write_group 3 2
+  run_adopt >/dev/null
+  assert_eq "x86_64 held, arm64 not: arm64 is repinned" "1" "$(grep 'update-auto-scaling-group' "$STUB_LOG" | grep -c '"LaunchTemplateId":"lt-arm","Version":"4"')"
+  assert_eq "an old running AMI of the unheld arch still starts a refresh" "1" "$(calls 'start-instance-refresh')"
+
+  reset_fixtures
+  run_adopt >/dev/null
+  assert_eq "nothing held: the metric is 0" "1" "$(calls 'put-metric-data .*AmiAdoptionHeld.*Value=0')"
+
+  for _pin in '$Latest' '$Default' 'null'; do
+    reset_fixtures
+    write_group "$_pin" "$_pin"
+    assert_eq "a non-numeric pin ($_pin) does not break the run" "" "$(run_adopt)"
+    assert_eq "a non-numeric pin ($_pin) holds the group" "0" "$(calls 'update-auto-scaling-group')"
+  done
 
   reset_fixtures
   printf '{"InstanceRefreshes":[{"Status":"InProgress"}]}\n' >"$STUB_DIR/describe-instance-refreshes.json"

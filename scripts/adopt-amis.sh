@@ -11,9 +11,11 @@
 # versions. The group stays pinned to a version, never $Latest, so a template
 # change made by Terraform still starts a refresh.
 #
-# The group is left alone when it is not pinned to the template's latest
-# version (a rollback or hold set by hand), while a refresh runs, or while a
-# refresh alarm is in ALARM. Versions beyond the newest KEEP_VERSIONS, except
+# A template the group is not pinned to the latest version of (a rollback or
+# hold set by hand) is held: its version is still written, the group keeps its
+# pin, a HELD line is logged and AmiAdoptionHeld is published. The other
+# template is adopted. Nothing is touched while a refresh runs or a refresh
+# alarm is in ALARM. Versions beyond the newest KEEP_VERSIONS, except
 # the default and the pinned one, are deleted so scripts/clean-amis.sh, which
 # keeps every AMI a version references, can free old AMIs.
 #
@@ -107,11 +109,12 @@ image_ages() {
     | (($now - (.CreationDate | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)) / 86400 * 100 | round) / 100'
 }
 
-# $1 = days. Best effort: a metric failure must not stop the adoption.
-publish_age() {
+# $1 = metric name, $2 = value. Best effort: a metric failure must not stop the
+# adoption.
+publish_metric() {
   aws cloudwatch put-metric-data --region "$REGION" --namespace "$METRIC_NAMESPACE" \
-    --metric-data "MetricName=AmiAgeDays,Dimensions=[{Name=AutoScalingGroupName,Value=$ASG_NAME}],Value=$1,Unit=None" ||
-    log "could not publish AmiAgeDays; continuing"
+    --metric-data "MetricName=$1,Dimensions=[{Name=AutoScalingGroupName,Value=$ASG_NAME}],Value=$2,Unit=None" ||
+    log "could not publish $1; continuing"
 }
 
 # Echoes why the group must not be touched, or nothing.
@@ -130,14 +133,15 @@ blocker() {
     jq -r '[.MetricAlarms[] | select(.StateValue == "ALARM") | .AlarmName] | if length > 0 then "alarm in ALARM: " + join(", ") else empty end'
 }
 
-# $1 = template id, $2 = version the group pins it to. Deletes versions beyond
-# the newest KEEP_VERSIONS, except the default and the pinned one.
+# $1 = template id, $2 = what the group pins it to: a number, or a selector such
+# as $Latest that matches no number. Deletes versions beyond the newest
+# KEEP_VERSIONS, except the default and the pinned one.
 prune_versions() {
   _prune_versions_doomed="$(aws ec2 describe-launch-template-versions --region "$REGION" \
     --launch-template-id "$1" --output json |
-    jq -r --argjson keep "$KEEP_VERSIONS" --argjson pinned "$2" '
+    jq -r --argjson keep "$KEEP_VERSIONS" --arg pinned "$2" '
       .LaunchTemplateVersions | sort_by(-.VersionNumber)
-      | to_entries | map(select(.key >= $keep and (.value.DefaultVersion | not) and .value.VersionNumber != $pinned))
+      | to_entries | map(select(.key >= $keep and (.value.DefaultVersion | not) and (.value.VersionNumber | tostring) != $pinned))
       | map(.value.VersionNumber) | sort | map(tostring) | join(" ")')"
   [ -n "$_prune_versions_doomed" ] || return 0
   log "deleting $1 versions: $_prune_versions_doomed"
@@ -147,11 +151,14 @@ prune_versions() {
 }
 
 # $1 = images JSON, $2 = space-separated running image ids, $3 = space-separated
-# newest AMI ids. True when a running AMI is older than the limit and is not
-# one of the newest.
+# newest AMI ids, $4 = space-separated architectures the group is following
+# (not held). True when a running AMI of one of those is older than the limit
+# and is not one of the newest.
 needs_refresh() {
   for _needs_refresh_image in $2; do
     in_list "$_needs_refresh_image" "$3" && continue
+    _needs_refresh_arch="$(printf '%s' "$1" | jq -r --arg id "$_needs_refresh_image" '.Images[] | select(.ImageId == $id) | .Architecture')"
+    in_list "$_needs_refresh_arch" "$4" || continue
     _needs_refresh_age="$(image_ages "$1" "$_needs_refresh_image")"
     [ -n "$_needs_refresh_age" ] || continue
     [ "$(jq -n --argjson a "$_needs_refresh_age" --argjson m "$AMI_MAX_AGE_DAYS" 'if $a > $m then 1 else 0 end')" -eq 1 ] && return 0
@@ -197,7 +204,7 @@ main() {
 
   _main_running="$(running_images "$_main_group")"
   _main_age="$(oldest_running_age "$_main_images" "$_main_running")"
-  [ -z "$_main_age" ] || publish_age "$_main_age"
+  [ -z "$_main_age" ] || publish_metric AmiAgeDays "$_main_age"
 
   _main_blocker="$(blocker)"
   if [ -n "$_main_blocker" ]; then
@@ -214,8 +221,8 @@ main() {
 
   _main_pins="{}"
   _main_effective="{}"
-  _main_held=""
-  _main_changed=""
+  _main_held_count=0
+  _main_active=""
   for _main_arch in $_main_archs; do
     _main_lt="$(printf '%s' "$LAUNCH_TEMPLATE_IDS" | jq -r --arg a "$_main_arch" '.[$a]')"
     _main_target="$(newest_ami "$_main_images" "$_main_arch")"
@@ -226,29 +233,28 @@ main() {
     if [ "${_main_latest#* }" != "$_main_target" ]; then
       _main_new="$(write_version "$_main_lt" "$_main_version" "$_main_target")"
       log "$_main_lt ($_main_arch): version $_main_new uses $_main_target (was ${_main_latest#* })"
-      _main_changed=1
     fi
-    if [ "$_main_pinned" != "$_main_version" ]; then
-      log "$_main_lt is pinned to version $_main_pinned, not the latest $_main_version."
-      _main_held=1
+    if [ "$_main_pinned" = "$_main_version" ]; then
+      _main_active="$_main_active $_main_arch"
+      _main_effective="$(printf '%s' "$_main_effective" | jq -c --arg lt "$_main_lt" --arg v "$_main_new" '. + {($lt): $v}')"
+      [ "$_main_new" = "$_main_version" ] ||
+        _main_pins="$(printf '%s' "$_main_pins" | jq -c --arg lt "$_main_lt" --arg v "$_main_new" '. + {($lt): $v}')"
+    else
+      log "HELD: $_main_lt ($_main_arch) is pinned to $_main_pinned, not the latest version $_main_version; the group keeps that pin."
+      _main_held_count=$((_main_held_count + 1))
+      _main_effective="$(printf '%s' "$_main_effective" | jq -c --arg lt "$_main_lt" --arg v "$_main_pinned" '. + {($lt): $v}')"
     fi
-    _main_pins="$(printf '%s' "$_main_pins" | jq -c --arg lt "$_main_lt" --arg v "$_main_new" '. + {($lt): $v}')"
-    _main_effective="$(printf '%s' "$_main_effective" | jq -c --arg lt "$_main_lt" --arg v "$_main_pinned" '. + {($lt): $v}')"
   done
+  publish_metric AmiAdoptionHeld "$_main_held_count"
 
-  if [ -n "$_main_held" ]; then
-    log "the group is held behind the latest versions: no repin, no refresh."
-  else
-    if [ -n "$_main_changed" ]; then
-      aws autoscaling update-auto-scaling-group --region "$REGION" \
-        --auto-scaling-group-name "$ASG_NAME" \
-        --mixed-instances-policy "$(repinned_policy "$_main_group" "$_main_pins")"
-      log "repinned $ASG_NAME to $_main_pins"
-      _main_effective="$_main_pins"
-    fi
-    if needs_refresh "$_main_images" "$_main_running" "$_main_newest"; then
-      start_refresh
-    fi
+  if [ "$_main_pins" != "{}" ]; then
+    aws autoscaling update-auto-scaling-group --region "$REGION" \
+      --auto-scaling-group-name "$ASG_NAME" \
+      --mixed-instances-policy "$(repinned_policy "$_main_group" "$_main_pins")"
+    log "repinned $ASG_NAME: $_main_pins"
+  fi
+  if needs_refresh "$_main_images" "$_main_running" "$_main_newest" "$_main_active"; then
+    start_refresh
   fi
 
   for _main_lt in $(printf '%s' "$_main_effective" | jq -r 'keys[]'); do

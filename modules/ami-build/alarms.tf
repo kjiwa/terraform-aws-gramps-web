@@ -36,3 +36,22 @@ resource "aws_cloudwatch_metric_alarm" "failed_builds" {
   alarm_actions       = [var.alarm_topic_arn]
   ok_actions          = [var.alarm_topic_arn]
 }
+
+# A launch template the group is pinned behind (a rollback) is not adopted;
+# the build says so with AmiAdoptionHeld, and this tells the operator the
+# rollback is still in effect.
+resource "aws_cloudwatch_metric_alarm" "held" {
+  alarm_name          = "${local.name}-held"
+  alarm_description   = "A build found ${var.asg_name} pinned behind a launch template's latest version and did not adopt the new AMI for it. Repin the group to the latest version to resume."
+  namespace           = "GrampsWeb"
+  metric_name         = "AmiAdoptionHeld"
+  dimensions          = { AutoScalingGroupName = var.asg_name }
+  statistic           = "Maximum"
+  period              = 86400
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [var.alarm_topic_arn]
+  ok_actions          = [var.alarm_topic_arn]
+}

@@ -129,7 +129,7 @@ aws autoscaling start-instance-refresh --auto-scaling-group-name gramps-web \
   --preferences '{"MinHealthyPercentage":0}'
 ```
 
-While the group is pinned behind a template's latest version, later builds write versions but leave the group alone. Repin to the latest version, or apply Terraform after a template change, to resume; the age alarm reminds you if you forget. `clean-amis.sh` keeps every AMI a template version references, so versions kept by `adopt-amis.sh` stay available.
+A template the group is pinned behind is held: later builds still write its versions but leave its pin alone, log `HELD`, publish `AmiAdoptionHeld` and raise the `gramps-web-ami-held` alarm, while the other architecture is adopted normally. Repin to the latest version, or apply Terraform after a template change, to resume. `clean-amis.sh` keeps every AMI a template version references, so versions kept by `adopt-amis.sh` stay available.
 
 ## Sleeping the site
 

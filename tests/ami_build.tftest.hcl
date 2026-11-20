@@ -183,3 +183,15 @@ run "age_alarm_fires_at_twice_the_limit" {
     error_message = "The age alarm must watch AmiAgeDays for the group at twice max_age_days."
   }
 }
+
+run "held_adoption_has_an_alarm" {
+  command = plan
+  module {
+    source = "./modules/ami-build"
+  }
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.held.metric_name == "AmiAdoptionHeld" && aws_cloudwatch_metric_alarm.held.threshold == 0 && aws_cloudwatch_metric_alarm.held.dimensions["AutoScalingGroupName"] == "gramps-web"
+    error_message = "A build that holds a template must raise gramps-web-ami-held."
+  }
+}
