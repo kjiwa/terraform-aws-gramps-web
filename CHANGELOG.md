@@ -17,7 +17,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Upgrade
 
-- Move the module ref to `v1.8.1`; `source_branch` stays `release-1.8`, which moves with the tag. The plan updates only the build role's `-images-ssm` policy; no refresh. Then deploy (`scripts/deploy.sh --root <root> gramps`). A root that set `origin_secret` or `origin_secret_extra` outside 32 to 64 characters must change them.
+- Move the module ref to `v1.8.1`; `source_branch` stays `release-1.8`, which moves with the tag. The plan updates only the build role's `-images-ssm` policy; no refresh. The encrypted AMI arrives with the next build; existing AMIs stay unencrypted until then. Then deploy (`scripts/deploy.sh --root <root> gramps`). A root that set `origin_secret` or `origin_secret_extra` outside 32 to 64 characters must change them.
 
 ## [1.8.0] - 2026-11-19
 
