@@ -215,6 +215,7 @@ build {
       "${path.root}/../../scripts/keel/rightsize-check.sh",
       "${path.root}/prewarm.sh",
       "${path.root}/prewarm.service",
+      "${path.root}/smoke.sh",
       "${path.root}/../app/bundle/docker-compose.yml",
     ]
     destination = "/tmp/"
