@@ -1,7 +1,9 @@
-# Watches IMDS for the Spot interruption notice and cleanly stops the gramps
-# containers before reclaim. Installed and enabled by build/ami/install.sh.
-# Starts at boot and polls immediately; the drain action itself tolerates
-# docker / instance.env not being ready yet (it just syncs).
+# Drains the gramps containers and the data volume on a Spot interruption
+# notice (the polling ExecStart) and on an ASG termination (ExecStop, which
+# does nothing on a reboot). Installed and enabled by build/ami/install.sh.
+# Starts at boot and polls immediately; the drain tolerates docker /
+# instance.env not being ready yet (it just syncs). After=docker.service makes
+# this unit stop before docker does at shutdown, while compose still works.
 [Unit]
 Description=Drain gramps containers on EC2 Spot interruption notice
 After=network-online.target docker.service
@@ -9,6 +11,8 @@ Wants=network-online.target docker.service
 
 [Service]
 ExecStart=/usr/local/bin/gramps-spot-drain
+ExecStop=/usr/local/bin/gramps-spot-drain stop
+TimeoutStopSec=60
 Restart=on-failure
 RestartSec=5
 
