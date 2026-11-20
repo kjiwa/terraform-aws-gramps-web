@@ -82,6 +82,26 @@ variable "ami_auto_build" {
   default     = true
 }
 
+variable "origin_secret" {
+  description = "Value CloudFront sends to the origin in X-Origin-Verify (string of 32 or more letters and digits), or null (the default) to generate one that never changes. Set it only to rotate (README, \"Origin secret\")."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "origin_secret_extra" {
+  description = "Further X-Origin-Verify values the proxy accepts (list of strings), for rotation (README, \"Origin secret\"). Empty accepts only origin_secret."
+  type        = list(string)
+  default     = []
+  sensitive   = true
+}
+
+variable "origin_secret_enforce" {
+  description = "Whether the origin proxy answers 403 to a request without a valid X-Origin-Verify (bool). false, the default, only logs the mismatch so that an upgrade can never lock the site out; set true after confirming CloudFront's header arrives (README, \"Origin secret\"). Takes effect at the next deploy."
+  type        = bool
+  default     = false
+}
+
 variable "site_title" {
   description = "Site name shown on error pages (string), or empty to use primary_domain."
   type        = string

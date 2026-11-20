@@ -153,6 +153,7 @@ main() {
   run_adopt >/dev/null
   assert_eq "nothing held: the metric is 0" "1" "$(calls 'put-metric-data .*AmiAdoptionHeld.*Value=0')"
 
+  # shellcheck disable=SC2016 # the selectors are literal
   for _pin in '$Latest' '$Default' 'null'; do
     reset_fixtures
     write_group "$_pin" "$_pin"

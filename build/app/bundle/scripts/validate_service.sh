@@ -1,8 +1,9 @@
 #!/bin/sh
-# ValidateService: confirm the app answers through the proxy and the proxy
-# completes a TLS handshake on :443. The app is read on the loopback-only
-# listener (nginx.conf), because the public listener answers 403 without the
-# origin secret; the handshake is proven by any HTTP status from :443.
+# ValidateService: confirm the app answers through the proxy and the proxy's
+# origin secret policy holds on :443. The app is read on the loopback-only
+# listener (nginx.conf), because the public listener may answer 403 without the
+# origin secret; the public listener is then probed with and without the
+# header (check_origin_secret).
 # Deliberately gates on the web path only, NOT the LLM path: it reaches Bedrock
 # over the network and would make an otherwise-healthy deploy look failed on a
 # transient error.
@@ -60,11 +61,23 @@ invalidate_cache() {
   fi
 }
 
-# The public listener's TLS is what CloudFront needs; its status is not (403
-# without the secret).
-tls_up() {
-  _tls_up_code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 -k "$TLS_URL" || echo 000)"
-  [ "$_tls_up_code" != 000 ]
+# The public listener answers on 443 with the proxy's rendered origin secret
+# policy. $1 = what the first request, without the header, must get.
+# Enforcing: exactly 403 without the header, anything else with the current
+# secret. Logging: never 403. A status of 000 means no TLS handshake.
+check_origin_secret() {
+  _check_origin_secret_map="$COMPOSE_DIR/origin-secret.map"
+  [ -f "$_check_origin_secret_map" ] && [ -f "$COMPOSE_DIR/origin-enforce.map" ] || return 1
+  _check_origin_secret_value="$(sed -n 's/^"\(.*\)" 1;$/\1/p' "$_check_origin_secret_map" | head -n 1)"
+  _check_origin_secret_bare="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 -k "$TLS_URL" || echo 000)"
+  _check_origin_secret_sent="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 -k \
+    -H "X-Origin-Verify: $_check_origin_secret_value" "$TLS_URL" || echo 000)"
+  [ "$_check_origin_secret_bare" != 000 ] && [ "$_check_origin_secret_sent" != 000 ] || return 1
+  if grep -q '^default 1;$' "$COMPOSE_DIR/origin-enforce.map"; then
+    [ "$_check_origin_secret_bare" = 403 ] && [ "$_check_origin_secret_sent" != 403 ]
+  else
+    [ "$_check_origin_secret_bare" != 403 ] && [ "$_check_origin_secret_sent" != 403 ]
+  fi
 }
 
 main() {
@@ -79,8 +92,8 @@ main() {
     _main_code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 -k "$URL" || echo 000)"
     case "$_main_code" in
     2[0-9][0-9] | 3[0-9][0-9])
-      if tls_up; then
-        log "Healthy (HTTP $_main_code, TLS up)."
+      if check_origin_secret; then
+        log "Healthy (HTTP $_main_code, origin secret policy holds)."
         invalidate_cache
         prune_images
         return 0

@@ -18,23 +18,53 @@ resource "aws_ssm_parameter" "flask_secret" {
   }
 }
 
-# Shared secret CloudFront sends to the origin in X-Origin-Verify (modules/edge);
-# the proxy answers 403 without it (build/app/bundle/nginx.conf). Unlike the
-# Flask secret it rotates: replace random_password.origin_secret, apply, then
-# deploy (README, "Origin secret").
+# Shared secret CloudFront sends to the origin in X-Origin-Verify (modules/edge).
+# The proxy (build/app/bundle/nginx.conf) accepts origin_secret and every
+# origin_secret_extra value, and answers 403 to anything else only when
+# origin_secret_enforce is true; otherwise it logs the mismatch. The deploy
+# hook renders all three parameters into the proxy's map files, so a change
+# reaches nginx at the next deploy (README, "Origin secret").
 resource "random_password" "origin_secret" {
   length  = 48
   special = false
+}
+
+locals {
+  origin_secret = coalesce(var.origin_secret, random_password.origin_secret.result)
 }
 
 resource "aws_ssm_parameter" "origin_secret" {
   name        = "/gramps-web/${var.env}/origin-secret"
   description = "Value of the X-Origin-Verify header CloudFront sends to the origin. Read by the CodeDeploy after_install hook."
   type        = "SecureString"
-  value       = random_password.origin_secret.result
+  value       = local.origin_secret
 
   tags = {
     Name = "gramps-web-origin-secret"
+  }
+}
+
+resource "aws_ssm_parameter" "origin_secret_extra" {
+  count = length(var.origin_secret_extra) > 0 ? 1 : 0
+
+  name        = "/gramps-web/${var.env}/origin-secret-extra"
+  description = "Comma-separated further values the proxy accepts in X-Origin-Verify, for rotation."
+  type        = "SecureString"
+  value       = join(",", var.origin_secret_extra)
+
+  tags = {
+    Name = "gramps-web-origin-secret-extra"
+  }
+}
+
+resource "aws_ssm_parameter" "origin_secret_mode" {
+  name        = "/gramps-web/${var.env}/origin-secret-mode"
+  description = "enforce: the proxy answers 403 without a valid X-Origin-Verify. log: it only logs the mismatch."
+  type        = "String"
+  value       = var.origin_secret_enforce ? "enforce" : "log"
+
+  tags = {
+    Name = "gramps-web-origin-secret-mode"
   }
 }
 

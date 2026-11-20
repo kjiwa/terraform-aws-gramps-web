@@ -260,3 +260,55 @@ run "origin_secret_is_a_secure_string_under_the_env_path" {
     error_message = "The origin secret must be at least 32 characters with no special characters (it is written into an nginx map file)."
   }
 }
+
+run "origin_secret_starts_in_log_mode_with_no_extras" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+
+  assert {
+    condition     = aws_ssm_parameter.origin_secret_mode.name == "/gramps-web/prod/origin-secret-mode" && aws_ssm_parameter.origin_secret_mode.value == "log"
+    error_message = "The proxy must only log a missing or wrong origin secret unless origin_secret_enforce is true."
+  }
+  assert {
+    condition     = length(aws_ssm_parameter.origin_secret_extra) == 0
+    error_message = "No extra accepted secret parameter without origin_secret_extra."
+  }
+}
+
+run "origin_secret_enforce_and_extras_reach_ssm" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+  variables {
+    origin_secret_enforce = true
+    origin_secret         = "NEWNEWNEWNEWNEWNEWNEWNEWNEWNEWNEWNEWNEWNEW"
+    origin_secret_extra   = ["OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD", "TWOTWOTWOTWOTWOTWOTWOTWOTWOTWOTWOTWOTWOTWO"]
+  }
+
+  assert {
+    condition     = aws_ssm_parameter.origin_secret_mode.value == "enforce"
+    error_message = "origin_secret_enforce must publish mode enforce."
+  }
+  assert {
+    condition     = aws_ssm_parameter.origin_secret.value == "NEWNEWNEWNEWNEWNEWNEWNEWNEWNEWNEWNEWNEWNEW"
+    error_message = "An origin_secret override must replace the generated secret."
+  }
+  assert {
+    condition     = aws_ssm_parameter.origin_secret_extra[0].type == "SecureString" && aws_ssm_parameter.origin_secret_extra[0].name == "/gramps-web/prod/origin-secret-extra"
+    error_message = "Extra accepted secrets must be a SecureString beside the others."
+  }
+}
+
+run "origin_secret_values_must_be_map_safe" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+  variables {
+    origin_secret_extra = ["has space\"quote"]
+  }
+  expect_failures = [var.origin_secret_extra]
+}

@@ -80,6 +80,6 @@ output "instance_role_arn" {
 
 output "origin_secret" {
   description = "Shared secret CloudFront sends in X-Origin-Verify. Read by modules/edge."
-  value       = random_password.origin_secret.result
+  value       = local.origin_secret
   sensitive   = true
 }

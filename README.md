@@ -131,6 +131,37 @@ aws autoscaling start-instance-refresh --auto-scaling-group-name gramps-web \
 
 A template the group is pinned behind is held: later builds still write its versions but leave its pin alone, log `HELD`, publish `AmiAdoptionHeld` and raise the `gramps-web-ami-held` alarm, while the other architecture is adopted normally. Repin to the latest version, or apply Terraform after a template change, to resume. `clean-amis.sh` keeps every AMI a template version references, so versions kept by `adopt-amis.sh` stay available.
 
+## Origin secret
+
+CloudFront sends `X-Origin-Verify` on every request to the instance. The secret is a generated value in the SSM parameter `/gramps-web/<env>/origin-secret`; the deploy writes it, with any `origin_secret_extra` values, into nginx's map files and reloads nginx. With `origin_secret_enforce = false` (the default) the proxy only logs the result for each public request; with `true` it answers 403 to a missing or wrong header. Nothing locks the site out unless you enforce, so neither an upgrade nor a pipeline run that lands before CloudFront finishes deploying can produce 403s.
+
+**Turn enforcement on.** Apply with the default, then check, then enforce:
+
+1. Apply, and wait until CloudFront reports the change deployed (`<id>` is the `primary_distribution_id` output):
+
+   ```sh
+   aws cloudfront get-distribution --id <id> --query Distribution.Status --output text   # Deployed
+   ```
+
+2. Deploy (`scripts/deploy.sh --root <root> gramps`) so nginx logs the result, then on the instance (Session Manager) count public requests that carried the secret and ones that did not:
+
+   ```sh
+   docker compose --env-file /opt/gramps/.env -f /opt/gramps/docker-compose.yml logs --tail 500 proxy | grep -c 'origin_secret=1'
+   docker compose --env-file /opt/gramps/.env -f /opt/gramps/docker-compose.yml logs --tail 500 proxy | grep -c 'origin_secret=0'
+   ```
+
+   Enforce only when the first count is positive and the second is zero apart from your own direct probes.
+
+3. Set `origin_secret_enforce = true`, apply, and deploy. The deploy fails if the proxy's behavior does not match: without the header it must answer exactly 403, with the secret not 403 (`validate_service.sh`). To go back, set it to `false`, apply and deploy.
+
+**Rotate.** The proxy accepts `origin_secret` and every `origin_secret_extra` value, so a new value is introduced before CloudFront sends it. Generate it first (`openssl rand -hex 24`; letters and digits, 32 or more), and read the current one with `terraform output -json gramps_web | jq -r .origin_secret`.
+
+1. Set `origin_secret_extra = ["<new>"]`, apply, and deploy: nginx accepts the current and the new value; CloudFront still sends the current one.
+2. Set `origin_secret = "<new>"` and `origin_secret_extra = ["<old>"]`, apply, and wait for CloudFront to report Deployed: it now sends the new value, which nginx already accepts. Deploy to have the instance read the new current value.
+3. Set `origin_secret_extra = []`, apply, and deploy: the old value stops working.
+
+Setting `origin_secret` back to null generates a new value and rotates once more, so keep the override until the next rotation.
+
 ## Sleeping the site
 
 `active = false` stops the instance and the canary alarms and keeps all data. Public IPv4, KMS keys, the Route 53 zone, ECR, EBS, and the origin certificate keep billing; the `active` input in the [module reference](#module-reference) gives the amount. Setting it back to `true` and applying wakes the site in about five minutes.
@@ -206,7 +237,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
 ## Security and limits
 
-- CloudFront reaches the origin over HTTPS with an ACM exportable certificate for `origin.<primary_domain>`, which the instance exports at deploy time. The origin security group admits only the CloudFront origin-facing prefix list on port 443, which every CloudFront distribution shares, so CloudFront also sends a secret in `X-Origin-Verify` and the proxy answers 403 without it. The secret is a `random_password` in the SSM parameter `/gramps-web/<env>/origin-secret`; the deploy writes it into the proxy's map file, and the app never receives it. On-instance health checks use a loopback-only listener. To rotate, run `terraform apply -replace=module.<name>.module.compute.random_password.origin_secret` and then `scripts/deploy.sh gramps`: requests fail with 403 between CloudFront taking the new value and the deploy.
+- CloudFront reaches the origin over HTTPS with an ACM exportable certificate for `origin.<primary_domain>`, which the instance exports at deploy time. The origin security group admits only the CloudFront origin-facing prefix list on port 443, which every CloudFront distribution shares, so CloudFront also sends a secret in `X-Origin-Verify`; see [Origin secret](#origin-secret). The app never receives it, and on-instance health checks use a loopback-only listener.
 - CloudFront adds HSTS (one year, no subdomains or preload), `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN` and a `frame-ancestors 'self'` CSP to the app, its static assets and the error pages. The status page and `additional_cache_behaviors` set their own.
 - Instance metadata allows a hop limit of 2, so the app containers can read the instance role's credentials (S3 media, Bedrock, SSM parameters, the data volume, the EIP). This is an accepted risk of running the containers on the host's bridge network: any code that runs in the app container is trusted with the role. Narrowing it means giving the containers a role of their own (or a credential proxy) in place of the host role, and is not done here.
 - SES starts in the sandbox in a new account. Invite and reset emails reach only verified recipients until you request production access.
@@ -294,6 +325,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Licensed 
 | llm | AI chat assistant on Bedrock (object); off unless enabled, and billed per token when on. model\_id is the Bedrock model or inference-profile ID without the bedrock: prefix; region is the invocation region (empty for the module's region). max\_requests, max\_tokens and max\_context\_length bound each chat run; system\_prompt overrides the agent prompt. hourly\_token\_alarm is the token count per hour that alarms to alert\_email, 0 to disable. | ```object({ enabled = optional(bool, false) model_id = optional(string, "us.anthropic.claude-haiku-4-5-20251001-v1:0") region = optional(string, "") max_requests = optional(number, 15) max_tokens = optional(number, 200000) max_context_length = optional(number, 50000) system_prompt = optional(string, "") hourly_token_alarm = optional(number, 3000000) })``` | `{}` | no |
 | media\_bucket\_name | S3 bucket name for media (string, globally unique), or empty to derive gramps-web-media-<account-id>. | `string` | `""` | no |
 | monthly\_budget\_usd | Monthly budget in USD (number) that the status page cost panel compares spend against. Set the alerting budget itself in keel's finops module. | `number` | `50` | no |
+| origin\_secret | Value CloudFront sends to the origin in X-Origin-Verify (string of 32 or more letters and digits), or null (the default) to generate one that never changes. Set it only to rotate (README, "Origin secret"). | `string` | `null` | no |
+| origin\_secret\_enforce | Whether the origin proxy answers 403 to a request without a valid X-Origin-Verify (bool). false, the default, only logs the mismatch so that an upgrade can never lock the site out; set true after confirming CloudFront's header arrives (README, "Origin secret"). Takes effect at the next deploy. | `bool` | `false` | no |
+| origin\_secret\_extra | Further X-Origin-Verify values the proxy accepts (list of strings), for rotation (README, "Origin secret"). Empty accepts only origin\_secret. | `list(string)` | `[]` | no |
 | rightsize | Scale-back to the cheapest Spot pool (object); off unless schedule is set. schedule is a systemd OnCalendar expression, optionally with a timezone suffix, and applies on the next instance replacement. min\_uptime\_hours is the churn bound between forced replacements. | ```object({ schedule = optional(string) min_uptime_hours = optional(number, 3) })``` | `{}` | no |
 | site\_title | Site name shown on error pages (string), or empty to use primary\_domain. | `string` | `""` | no |
 | spot | Spot capacity (object). enabled runs Spot only at a fraction of the On-Demand price, and each reclaim costs an outage plus an alert email. Measured on a prod deployment, 2026-10-21 to 2026-11-11: 10 reclaims (about 3 a week), a median outage of 4 minutes, p90 6 minutes, range 2 to 7. allocation\_strategy is price-capacity-optimized, capacity-optimized or lowest-price; rightsize needs lowest-price. | ```object({ enabled = optional(bool, false) allocation_strategy = optional(string, "price-capacity-optimized") })``` | `{}` | no |
@@ -320,6 +354,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Licensed 
 | gramps\_pipeline\_name | App CodePipeline name. Run by scripts/deploy.sh gramps, which names it as a constant. |
 | media\_bucket\_arn | S3 media bucket ARN. Read by scripts/backup.sh run and scripts/restore.sh drill, which pass it to `aws backup start-backup-job --resource-arn`. |
 | media\_bucket\_name | S3 media bucket name. Read by scripts/media.sh and scripts/restore.sh drill. |
+| origin\_secret | Value CloudFront sends in X-Origin-Verify. Read it before a rotation to keep it as an origin\_secret\_extra value. |
 | primary\_distribution\_arn | CloudFront distribution ARN for the primary site. Scope an additional\_origins S3 bucket policy to it. |
 | primary\_distribution\_id | CloudFront distribution ID for the primary site (manual invalidations). |
 | primary\_domain | Primary domain the site is served from (var.primary\_domain). Read by scripts/media.sh to reach the app API. |

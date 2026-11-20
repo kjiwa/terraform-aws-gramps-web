@@ -18,6 +18,34 @@ variable "ami_pin" {
   default     = null
 }
 
+variable "origin_secret" {
+  description = "Value CloudFront sends in X-Origin-Verify, or null to generate one. 32 or more letters and digits."
+  type        = string
+  default     = null
+  sensitive   = true
+  validation {
+    condition     = var.origin_secret == null || can(regex("^[A-Za-z0-9]{32,}$", var.origin_secret))
+    error_message = "origin_secret must be 32 or more letters and digits (it is written into an nginx map file)."
+  }
+}
+
+variable "origin_secret_extra" {
+  description = "Further values the proxy accepts in X-Origin-Verify beside origin_secret, for rotation."
+  type        = list(string)
+  default     = []
+  sensitive   = true
+  validation {
+    condition     = alltrue([for v in var.origin_secret_extra : can(regex("^[A-Za-z0-9]{32,}$", v))])
+    error_message = "origin_secret_extra values must be 32 or more letters and digits (they are written into an nginx map file)."
+  }
+}
+
+variable "origin_secret_enforce" {
+  description = "Whether the proxy answers 403 to a missing or wrong X-Origin-Verify (true) or only logs it (false)."
+  type        = bool
+  default     = false
+}
+
 variable "active" {
   description = "If false the ASG holds zero instances (environment asleep). Wake by flipping to true and applying; the new instance self-deploys the last CodeDeploy revision."
   type        = bool

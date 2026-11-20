@@ -76,19 +76,48 @@ write_env_file() {
   } >"$COMPOSE_DIR/secrets.env"
 }
 
-# The secret CloudFront sends in X-Origin-Verify (modules/compute/ssm.tf),
-# rendered as the nginx map nginx.conf includes. The parameter sits beside the
-# frontend config under /gramps-web/<env>/, so its path derives from that one
-# (a precondition in the launch template keeps the siblings together). No
-# fallback: a missing parameter fails the deploy, because an unenforced proxy
-# would be silent.
+# $1 = parameter name. Its value, or nothing when it does not exist; any other
+# failure is an error. get-parameters reports a missing name in the response,
+# not as a failure.
+ssm_optional() {
+  _ssm_optional_value="$(aws ssm get-parameters \
+    --names "$1" \
+    --with-decryption \
+    --query 'Parameters[0].Value' \
+    --output text \
+    --region "$REGION")"
+  [ "$_ssm_optional_value" = None ] || printf '%s' "$_ssm_optional_value"
+}
+
+# The origin secret (modules/compute/ssm.tf) as the two nginx map files that
+# nginx.conf includes: origin-secret.map lists every accepted value
+# (`"<value>" 1;`, then `default 0;`), origin-enforce.map is `default 1;` when
+# the proxy must answer 403 to the rest and `default 0;` when it only logs.
+# The parameters sit beside the frontend config under /gramps-web/<env>/ (a
+# precondition in the launch template keeps the siblings together). The
+# current secret is required: a missing one fails the deploy, because an
+# unenforced proxy would be silent. A missing mode means log. The files are
+# rewritten in place, never replaced: the proxy bind-mounts each as a single
+# file, which follows the inode, and application_start.sh reloads nginx.
 render_origin_secret() {
-  _render_origin_secret_param="$(dirname -- "$SSM_FRONTEND_CONFIG_PARAM")/origin-secret"
-  log "Rendering $COMPOSE_DIR/origin-secret.map..."
-  _render_origin_secret_value="$(ssm_value "$_render_origin_secret_param")"
+  _render_origin_secret_dir="$(dirname -- "$SSM_FRONTEND_CONFIG_PARAM")"
+  log "Rendering the origin secret maps in $COMPOSE_DIR..."
+  _render_origin_secret_current="$(ssm_value "$_render_origin_secret_dir/origin-secret")"
+  _render_origin_secret_extra="$(ssm_optional "$_render_origin_secret_dir/origin-secret-extra")"
+  _render_origin_secret_mode="$(ssm_optional "$_render_origin_secret_dir/origin-secret-mode")"
   (
     umask 077
-    printf '"%s" 1;\ndefault 0;\n' "$_render_origin_secret_value" >"$COMPOSE_DIR/origin-secret.map"
+    {
+      for _render_origin_secret_value in "$_render_origin_secret_current" $(printf '%s' "$_render_origin_secret_extra" | tr ',' ' '); do
+        printf '"%s" 1;\n' "$_render_origin_secret_value"
+      done
+      printf 'default 0;\n'
+    } >"$COMPOSE_DIR/origin-secret.map"
+    if [ "$_render_origin_secret_mode" = enforce ]; then
+      printf 'default 1;\n' >"$COMPOSE_DIR/origin-enforce.map"
+    else
+      printf 'default 0;\n' >"$COMPOSE_DIR/origin-enforce.map"
+    fi
   )
 }
 

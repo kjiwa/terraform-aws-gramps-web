@@ -30,6 +30,9 @@ module "compute" {
   active                     = var.active
   ami_ids                    = local.ami_ids
   ami_pin                    = var.ami_ids
+  origin_secret              = var.origin_secret
+  origin_secret_extra        = var.origin_secret_extra
+  origin_secret_enforce      = var.origin_secret_enforce
   subnet_ids                 = module.network.subnet_ids
   origin_sg_id               = module.network.origin_sg_id
   ebs_volume_id              = module.storage.ebs_volume_id
