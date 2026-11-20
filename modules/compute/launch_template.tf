@@ -87,11 +87,17 @@ resource "aws_launch_template" "this" {
     ignore_changes        = [image_id]
     replace_triggered_by  = [terraform_data.image_pin]
 
-    # gramps_env and frontend_config are siblings under one SSM path prefix;
-    # catch a rename that splits them at plan time, not at boot.
+    # gramps_env, frontend_config and origin_secret are siblings under one SSM
+    # path prefix (the deploy hook derives the origin secret's path from
+    # frontend_config's); catch a rename that splits them at plan time, not at
+    # boot.
     precondition {
-      condition     = dirname(aws_ssm_parameter.gramps_env.name) == dirname(aws_ssm_parameter.frontend_config.name)
-      error_message = "aws_ssm_parameter.gramps_env and aws_ssm_parameter.frontend_config must share a path prefix."
+      condition = alltrue([
+        dirname(aws_ssm_parameter.gramps_env.name) == dirname(aws_ssm_parameter.frontend_config.name),
+        dirname(aws_ssm_parameter.origin_secret.name) == dirname(aws_ssm_parameter.frontend_config.name),
+        basename(aws_ssm_parameter.origin_secret.name) == "origin-secret",
+      ])
+      error_message = "aws_ssm_parameter.gramps_env, aws_ssm_parameter.frontend_config and aws_ssm_parameter.origin_secret (named origin-secret) must share a path prefix."
     }
   }
 }
