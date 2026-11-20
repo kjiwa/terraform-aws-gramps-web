@@ -59,10 +59,16 @@ services:
     image: docker.io/library/nginx:1.30-alpine
     restart: unless-stopped
     logging: *logging
+    # 127.0.0.1:80 is for the health checks on the instance (health-watchdog,
+    # validate_service), which cannot send the origin secret; it is
+    # loopback-only and the origin security group does not admit port 80.
     ports:
       - "443:443"
+      - "127.0.0.1:80:8080"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./origin-secret.map:/etc/nginx/origin-secret.map:ro
+      - ./origin-enforce.map:/etc/nginx/origin-enforce.map:ro
       - /etc/gramps/tls:/etc/gramps/tls:ro
     depends_on:
       - grampsweb

@@ -67,3 +67,19 @@ output "deliberate_deployment_creators" {
   description = "CodeDeploy `creator` values that mean a person or a rollback started a deployment, as opposed to the ASG deploying to an instance it launched. The one definition both Lambdas read."
   value       = ["user", "codeDeployRollback"]
 }
+
+output "launch_template_ids" {
+  description = "Launch template ID per architecture (arm64, x86_64). Read by the AMI build, which writes a version per new AMI."
+  value       = { for arch, lt in aws_launch_template.this : arch => lt.id }
+}
+
+output "instance_role_arn" {
+  description = "ARN of the instance role. The AMI build may pass it to EC2 when it repins the ASG."
+  value       = aws_iam_role.instance.arn
+}
+
+output "origin_secret" {
+  description = "Shared secret CloudFront sends in X-Origin-Verify. Read by modules/edge."
+  value       = local.origin_secret
+  sensitive   = true
+}

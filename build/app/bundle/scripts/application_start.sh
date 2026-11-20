@@ -18,6 +18,12 @@ main() {
     --env-file "$COMPOSE_DIR/.env" \
     -f "$COMPOSE_DIR/docker-compose.yml" \
     up -d --remove-orphans
+  # `up -d` leaves a running proxy alone when only its mounted files changed
+  # (the origin secret maps, the certificate); a reload picks them up.
+  docker compose \
+    --env-file "$COMPOSE_DIR/.env" \
+    -f "$COMPOSE_DIR/docker-compose.yml" \
+    exec -T proxy nginx -s reload
 }
 
 main "$@"

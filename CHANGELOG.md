@@ -2,11 +2,40 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/). Until 1.0.0, a minor release may include breaking changes.
 
-## [Unreleased]
+## [1.8.0] - 2026-11-19
+
+### Added
+
+- The `gramps-web-ami` build runs weekly (Sundays 06:00 UTC) and when the app image for `gramps.version` is pushed to ECR. `ami_auto_build = false` turns both off; a pinned `ami_ids` also does.
+- `scripts/adopt-amis.sh` runs after a passing build. It writes a launch template version per architecture with the newest AMI (`ImageId` only), repins the Auto Scaling group to the new version numbers, deletes versions beyond the newest five (keeping the default and the pinned one), and starts an instance refresh only when a running instance's AMI is older than `ami_max_age_days` (new, default 14). It skips while a refresh runs or the refresh alarm is in ALARM, and holds a template the group was pinned behind by hand (logged, `AmiAdoptionHeld`, alarm `gramps-web-ami-held`) while adopting the other.
+- `ami_max_age_days` and `ami_auto_build`.
+- The build publishes `GrampsWeb` `AmiAgeDays`. Alarms `gramps-web-ami-age` (over twice `ami_max_age_days`) and `gramps-web-ami-failed` (a failed build) notify the alerts topic.
+- `build/ami/smoke.sh` runs on the Packer builder before the snapshot and fails the build when docker is not active, a pinned or the `gramps.version` image is missing, a baked script or unit is missing or disabled, or `dnf-automatic` is not set to security updates.
+- The image installs `dnf-automatic` with `upgrade_type = security` and `apply_updates = yes`.
+- The origin secret: a `random_password` in the SSM parameter `/gramps-web/<env>/origin-secret`, sent by CloudFront as `X-Origin-Verify`. The proxy checks it on 443 and, with `origin_secret_enforce = true`, answers 403 to a missing or wrong value; by default it only logs the result. The proxy also listens on `127.0.0.1:80` for the on-instance health checks.
+- `origin_secret_enforce` (default false), `origin_secret` (override, for rotation) and `origin_secret_extra` (further accepted values, for rotation). The README's "Origin secret" gives the rollout and the three-step rotation.
+- A CloudFront response headers policy (HSTS for one year, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN`, a `frame-ancestors 'self'` CSP) on the app, its static assets and the error pages.
+- Outputs `launch_template_ids`, `instance_role_arn`, `origin_secret` (compute) and `alert_topic_arn` (monitoring), consumed by the root.
+- The instance policy gains `autoscaling:DescribeAutoScalingInstances`.
+- Tests: `clean-amis.sh`, `adopt-amis.sh`, `spot-drain.sh`, `health-watchdog.sh`, `smoke.sh`, the origin secret on the instance, and the proxy in Docker (`scripts/tests`), and the new resources in `tests/`.
+- The README section "Base AMI", the origin secret and its rotation, and the IMDS hop-limit risk.
 
 ### Changed
 
-- `modules/storage` uses terraform-aws-keel v0.3.0 `data-volume`. Dependabot tracks keel refs in `modules/*` with no cooldown.
+- Launch templates ignore changes to `image_id` and are replaced only when `ami_ids` changes. `ami_ids` seeds a template when it is created.
+- `gramps-spot-drain` also runs as the unit's `ExecStop` (`TimeoutStopSec=60`): an ASG termination (instance refresh, scale-in) now stops the containers, syncs and detaches the data volume, as a Spot notice did. A reboot is left to systemd.
+- `clean-amis.sh` keeps every AMI that any launch template version references, not just `$Latest` and `$Default`.
+- Packer connects to the builder over SSM Session Manager (`ssh_interface = "session_manager"`) in a security group with no inbound rule. The build role loses `CreateSecurityGroup`, `AuthorizeSecurityGroupIngress` and `DeleteSecurityGroup`, `ModifyImageAttribute` is limited to images in the region, and it gains scoped `ssm:StartSession` (builders only) and the grants `adopt-amis.sh` needs (template versions of the two templates, the group, `iam:PassRole` of the instance role to EC2, `PutMetricData` in the `GrampsWeb` namespace). The builder role gains `AmazonSSMManagedInstanceCore`. The CodeBuild image installs the pinned `session-manager-plugin`.
+- `validate_service.sh` reads the app on the loopback listener and requires `:443` to complete a TLS handshake. The baked health watchdog needs no change: its `http://localhost/` fallback reaches the same listener.
+- Move `source_branch` along with the tag (`release-1.8`).
+
+### Upgrade
+
+- `terraform init -upgrade`, then apply. The plan adds the origin secret and its parameter, the response headers policy, the builder security group, the build's schedule and push rules, event role and two alarms, `terraform_data.image_pin`, and two build role policies; it updates the CloudFront distribution (the origin header and the policy on the app, static and error behaviors), the error pages bucket policy, the build project (environment) and the pipeline and frontend build (source branch), and the build and instance policies. It changes no launch template or Auto Scaling group, so it starts no instance refresh.
+- The proxy only logs the origin secret until you enforce it, so no apply and no pipeline run can lock the site out. After the apply: `scripts/deploy.sh --root <root> gramps`; confirm CloudFront is Deployed (`aws cloudfront get-distribution --id <primary_distribution_id> --query Distribution.Status --output text`); on the instance, `docker compose --env-file /opt/gramps/.env -f /opt/gramps/docker-compose.yml logs --tail 500 proxy | grep -c 'origin_secret=1'` must be positive and the same with `origin_secret=0` zero; then set `origin_secret_enforce = true`, apply, and deploy again.
+- A root that pins `ami_ids` keeps its pin and gets no automatic builds. To adopt, remove the pin: the launch templates keep the AMIs they have, and the first build afterwards advances them.
+- The drain, `dnf-automatic`, the smoke check and the proxy secret reach an instance with the next AMI and bundle: run `scripts/deploy.sh gramps` for the proxy (it fetches the secret from SSM, so apply first), and the first build adopts the AMI. The refresh the first build starts happens only when the running AMI is older than `ami_max_age_days`; otherwise the AMI arrives at the next replacement, or start a refresh yourself (README, "Base AMI").
+- Move `source_branch` along with the tag (`release-1.8`).
 
 ## [1.7.0] - 2026-11-12
 

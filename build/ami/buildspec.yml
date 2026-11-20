@@ -2,12 +2,17 @@ version: 0.2
 
 # Builds the gramps-web-base AMIs (both architectures) with Packer inside the
 # gramps-web-ami CodeBuild project. All logic lives in build/ami/build.sh
-# beside this file; the project injects REGION. Manual-trigger only
-# (patching has its own cadence):
+# beside this file; the project injects REGION and the adoption settings.
+# Starts weekly, on a push of the app image tag, or by hand:
 #   aws codebuild start-build --project-name gramps-web-ami
-# With ami_ids null, the next apply rolls the newest AMIs out; pin ami_ids to hold.
-# post_build (not build) so the AMI garbage collection still runs when Packer
-# fails partway through building one of the two architectures.
+# The smoke check (build/ami/smoke.sh) runs inside Packer, before the snapshot,
+# so a failed check leaves no AMI.
+#
+# post_build runs even when the build phase failed (so the AMI garbage
+# collection still runs after a partial Packer build), hence the guard on
+# CODEBUILD_BUILD_SUCCEEDING: only a build in which Packer succeeded for both
+# architectures is adopted. Adoption first, then cleanup: cleanup keeps every
+# AMI a launch template version references.
 #
 # Commands below are relative to the CodeBuild source root, not to this file.
 
@@ -17,4 +22,10 @@ phases:
       - sh build/ami/build.sh
   post_build:
     commands:
+      - |
+        if [ "$CODEBUILD_BUILD_SUCCEEDING" = 1 ]; then
+          sh scripts/adopt-amis.sh
+        else
+          echo "build failed; not adopting"
+        fi
       - FORCE=1 AWS_REGION="$REGION" sh scripts/clean-amis.sh --delete

@@ -704,3 +704,15 @@ run "outputs_the_operator_scripts_read" {
     error_message = "account_id must be the caller's account."
   }
 }
+
+run "ami_max_age_days_must_be_a_positive_whole_number" {
+  command = plan
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+  variables {
+    ami_max_age_days = 0
+  }
+  expect_failures = [var.ami_max_age_days]
+}

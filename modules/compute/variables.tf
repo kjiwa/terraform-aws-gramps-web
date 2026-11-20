@@ -4,12 +4,46 @@ variable "env" {
 }
 
 variable "ami_ids" {
-  description = "Per-architecture base AMI IDs (gramps-web-base Packer builds), resolved by the root module. One launch template per architecture binds to each; see launch_template.tf for how to list candidates."
+  description = "Per-architecture base AMI IDs (gramps-web-base Packer builds), resolved by the root module. One launch template per architecture is created with each; scripts/adopt-amis.sh advances them afterwards (see launch_template.tf)."
   type        = map(string)
   validation {
     condition     = sort(keys(var.ami_ids)) == tolist(["arm64", "x86_64"])
     error_message = "ami_ids must contain exactly the keys \"arm64\" and \"x86_64\"."
   }
+}
+
+variable "ami_pin" {
+  description = "The operator's ami_ids pin, or null. Only a change to it replaces the launch templates; ami_ids seeds image_id at creation, and scripts/adopt-amis.sh advances it afterwards."
+  type        = map(string)
+  default     = null
+}
+
+variable "origin_secret" {
+  description = "Value CloudFront sends in X-Origin-Verify, or null to generate one. 32 or more letters and digits."
+  type        = string
+  default     = null
+  sensitive   = true
+  validation {
+    condition     = var.origin_secret == null || can(regex("^[A-Za-z0-9]{32,}$", var.origin_secret))
+    error_message = "origin_secret must be 32 or more letters and digits (it is written into an nginx map file)."
+  }
+}
+
+variable "origin_secret_extra" {
+  description = "Further values the proxy accepts in X-Origin-Verify beside origin_secret, for rotation."
+  type        = list(string)
+  default     = []
+  sensitive   = true
+  validation {
+    condition     = alltrue([for v in var.origin_secret_extra : can(regex("^[A-Za-z0-9]{32,}$", v))])
+    error_message = "origin_secret_extra values must be 32 or more letters and digits (they are written into an nginx map file)."
+  }
+}
+
+variable "origin_secret_enforce" {
+  description = "Whether the proxy answers 403 to a missing or wrong X-Origin-Verify (true) or only logs it (false)."
+  type        = bool
+  default     = false
 }
 
 variable "active" {

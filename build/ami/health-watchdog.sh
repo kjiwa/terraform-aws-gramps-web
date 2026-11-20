@@ -27,9 +27,9 @@ set -eu
 # Either scheme counts: the app bundle (release branch) and this baked AMI
 # version independently, and a bundle serves HTTP or HTTPS.
 readonly URLS="https://localhost/ http://localhost/"
-readonly COUNT_FILE="/run/gramps-health-failcount"
-readonly METRICS_STAMP="/run/gramps-host-metrics-stamp"
-readonly INSTANCE_ENV="/etc/gramps/instance.env"
+readonly COUNT_FILE="${COUNT_FILE:-/run/gramps-health-failcount}"
+readonly METRICS_STAMP="${METRICS_STAMP:-/run/gramps-host-metrics-stamp}"
+readonly INSTANCE_ENV="${INSTANCE_ENV:-/etc/gramps/instance.env}"
 readonly THRESHOLD=10
 
 log() {
@@ -37,7 +37,7 @@ log() {
 }
 
 # shellcheck source=gramps-runtime.sh
-. /usr/local/lib/gramps-runtime.sh
+. "${GRAMPS_RUNTIME_LIB:-/usr/local/lib/gramps-runtime.sh}"
 
 # Boot glue not finished: the app legitimately isn't up yet; don't count.
 load_env() {

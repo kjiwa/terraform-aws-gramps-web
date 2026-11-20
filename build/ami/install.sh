@@ -1,10 +1,11 @@
 #!/bin/sh
 # Packer provisioner: installs packages, the CodeDeploy agent, the shared
 # runtime library the watchdogs source, keel's rightsize check, the Spot
-# interruption drain (script + unit, uploaded by the file provisioner), and
-# pre-pulls the valkey, proxy and grampsweb images.
+# interruption drain (script + unit, uploaded by the file provisioner),
+# unattended security updates, and pre-pulls the valkey, proxy and grampsweb
+# images. Ends with smoke.sh, before the cleanup that removes the SSH key.
 # Runs as root via: sudo -E sh '{{.Path}}'
-# Env vars injected by Packer: REGION, ECR_REPO_URL, GRAMPS_WEB_VERSION
+# Env vars injected by Packer: REGION, ECR_REPO_URL, GRAMPS_WEB_VERSION, BUILDER_SSM
 # Files staged under /tmp: everything the file provisioner in
 #   gramps-ami.pkr.hcl stages there.
 set -eu
@@ -15,7 +16,12 @@ log() {
 
 install_packages() {
   log "Upgrading system packages..."
-  dnf upgrade -y
+  # Upgrading the SSM agent restarts it, which would drop a Session Manager
+  # build's own connection; the base AMI's agent stays until the next rebuild.
+  _install_packages_exclude=""
+  [ "${BUILDER_SSM:-false}" != true ] || _install_packages_exclude="--exclude=amazon-ssm-agent"
+  # shellcheck disable=SC2086 # empty or one option
+  dnf upgrade -y $_install_packages_exclude
 
   log "Installing spal-release..."
   dnf install -y spal-release
@@ -31,6 +37,17 @@ install_packages() {
   systemctl start docker
   log "Docker: $(docker --version)"
   log "Compose: $(docker compose version)"
+}
+
+# Prod instances live until reclaimed, so the image patches itself between
+# rebuilds: security updates only, no reboot (a kernel update waits for the
+# next replacement).
+install_security_updates() {
+  log "Installing dnf-automatic..."
+  dnf install -y dnf-automatic
+  sed -i 's/^upgrade_type = .*/upgrade_type = security/' /etc/dnf/automatic.conf
+  sed -i 's/^apply_updates = .*/apply_updates = yes/' /etc/dnf/automatic.conf
+  systemctl enable dnf-automatic.timer
 }
 
 install_codedeploy_agent() {
@@ -155,14 +172,14 @@ compose_image_pin() {
 # Pre-pulling valkey, the proxy and grampsweb keeps all three off the
 # boot-critical path of a replacement: with the tags already local, `compose up` needs no pull at all
 # on a same-version launch, which is every launch except a deliberate version
-# bump. The grampsweb pull is non-fatal when the tag is absent -- a fresh
-# account has an empty ECR repository, and the AMI build must still succeed;
-# the deploy pulls it the ordinary way (CodeDeploy's AfterInstall) once the
-# app pipeline has actually pushed a version.
+# bump. A failed grampsweb pull is logged here and fails verify_image when a
+# version was given: a build that cannot bake it (a fresh account with an
+# empty ECR repository, or a version not yet deployed) must not be adopted.
+# Without ECR_REPO_URL or GRAMPS_WEB_VERSION (a workstation build) it is
+# skipped, and the deploy pulls it the ordinary way.
 pull_images() {
   _pull_images_valkey_image="$(compose_image_pin valkey)"
   _pull_images_proxy_image="$(compose_image_pin proxy)"
-  rm -f /tmp/docker-compose.yml
   log "Pulling valkey image: ${_pull_images_valkey_image}..."
   docker pull "$_pull_images_valkey_image"
   log "Pulling proxy image: ${_pull_images_proxy_image}..."
@@ -173,7 +190,7 @@ pull_images() {
     aws ecr get-login-password --region "$REGION" |
       docker login --username AWS --password-stdin "${ECR_REPO_URL%%/*}"
     if ! docker pull "${ECR_REPO_URL}:${GRAMPS_WEB_VERSION}"; then
-      log "grampsweb pull failed (tag absent or ECR empty); continuing without it."
+      log "grampsweb pull failed (tag absent or ECR empty); the smoke check will fail the build."
     fi
   else
     log "ECR_REPO_URL/GRAMPS_WEB_VERSION not set; skipping the grampsweb pull."
@@ -183,18 +200,40 @@ pull_images() {
   docker system df
 }
 
+# The images the build must have baked: the compose file's pins and, when the
+# build was given a version to pre-pull, that grampsweb image.
+verify_image() {
+  _verify_image_refs="$(compose_image_pin valkey) $(compose_image_pin proxy)"
+  rm -f /tmp/docker-compose.yml
+  if [ -n "${ECR_REPO_URL:-}" ] && [ -n "${GRAMPS_WEB_VERSION:-}" ]; then
+    _verify_image_refs="$_verify_image_refs ${ECR_REPO_URL}:${GRAMPS_WEB_VERSION}"
+  fi
+  log "Running the smoke check..."
+  # Word-splitting is the point: one argument per image reference.
+  # shellcheck disable=SC2086
+  sh /tmp/smoke.sh $_verify_image_refs
+  rm -f /tmp/smoke.sh
+}
+
 cleanup_packages() {
   log "Cleaning the package cache..."
   dnf clean all
   rm -rf /var/cache/dnf
 }
 
-# Ensure the SSM agent starts at boot and clear the per-instance state this
-# build registered, so instances launched from the AMI register cleanly. The
+# Ensure the SSM agent starts at boot and, on a public-SSH build, clear the
+# per-instance state this build registered, so instances launched from the AMI
+# register cleanly. A Session Manager build (BUILDER_SSM=true) reaches this very
+# script through the agent, so stopping it here would drop the connection
+# mid-build; the agent then goes down with the builder's shutdown instead. The
 # installation dir itself is left alone, per AWS guidance.
 reset_ssm_agent() {
-  log "Resetting SSM agent state..."
   systemctl enable amazon-ssm-agent
+  if [ "${BUILDER_SSM:-false}" = true ]; then
+    log "Leaving the SSM agent running: the build connects through it."
+    return 0
+  fi
+  log "Resetting SSM agent state..."
   systemctl stop amazon-ssm-agent
   rm -rf /var/lib/amazon/ssm/i-* /var/lib/amazon/ssm/ipc
 }
@@ -233,6 +272,7 @@ cleanup() {
 main() {
   log "=== packer-install start ==="
   install_packages
+  install_security_updates
   install_codedeploy_agent
   install_cloudwatch_agent
   install_runtime_lib
@@ -242,6 +282,7 @@ main() {
   install_unit rightsize-watchdog gramps-rightsize-watchdog service timer
   install_unit prewarm gramps-prewarm service
   pull_images
+  verify_image
   cleanup
   log "=== packer-install complete ==="
 }

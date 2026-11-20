@@ -30,7 +30,9 @@ resource "aws_iam_role" "ami_build" {
 # Trimmed from the documented set, restore on an AccessDenied naming one:
 # GetPasswordData (Windows), CopyImage (ami_regions), ModifySnapshotAttribute
 # (snapshot sharing), AttachVolume / DetachVolume /
-# CreateVolume (chroot-style builders). iam:CreateServiceLinkedRole for Spot
+# CreateVolume (chroot-style builders), CreateSecurityGroup /
+# AuthorizeSecurityGroupIngress / DeleteSecurityGroup (the builder uses
+# aws_security_group.builder and connects over SSM, not SSH). iam:CreateServiceLinkedRole for Spot
 # is deliberately absent: AWSServiceRoleForEC2Spot already exists in any
 # account that has run this stack's Spot ASG or a workstation Packer build.
 data "aws_iam_policy_document" "ami_build" {
@@ -57,12 +59,10 @@ data "aws_iam_policy_document" "ami_build" {
     sid    = "PackerBuild"
     effect = "Allow"
     actions = [
-      "ec2:AuthorizeSecurityGroupIngress",
       "ec2:CreateFleet",
       "ec2:CreateImage",
       "ec2:CreateKeyPair",
       "ec2:CreateLaunchTemplate",
-      "ec2:CreateSecurityGroup",
       "ec2:CreateSnapshot",
       "ec2:CreateTags",
       "ec2:DeleteKeyPair",
@@ -83,7 +83,6 @@ data "aws_iam_policy_document" "ami_build" {
       "ec2:DescribeSubnets",
       "ec2:DescribeTags",
       "ec2:DescribeVolumes",
-      "ec2:ModifyImageAttribute",
       "ec2:RegisterImage",
       "ec2:RunInstances",
     ]
@@ -113,12 +112,12 @@ data "aws_iam_policy_document" "ami_build" {
     }
   }
 
-  # The builder's own instance, volumes and security group (run_tags and
-  # run_volume_tags in gramps-ami.pkr.hcl).
+  # The builder's own instance and volumes (run_tags and run_volume_tags in
+  # gramps-ami.pkr.hcl).
   statement {
     sid       = "PackerBuilderResources"
     effect    = "Allow"
-    actions   = ["ec2:DeleteSecurityGroup", "ec2:DeleteVolume", "ec2:ModifyInstanceAttribute"]
+    actions   = ["ec2:DeleteVolume", "ec2:ModifyInstanceAttribute"]
     resources = ["*"]
 
     condition {
@@ -228,4 +227,131 @@ resource "aws_iam_role_policy" "ami_builder" {
 resource "aws_iam_instance_profile" "ami_builder" {
   name = "gramps-web-ami-builder"
   role = aws_iam_role.ami_builder.name
+}
+
+# Packer sets AMI attributes only on the images it registers. EC2 has no tag
+# condition on the image at that point (the tags land after registration), so
+# the grant is scoped to images in this region.
+data "aws_iam_policy_document" "ami_build_images" {
+  statement {
+    sid       = "PackerImageAttributes"
+    effect    = "Allow"
+    actions   = ["ec2:ModifyImageAttribute"]
+    resources = ["arn:aws:ec2:${var.region}::image/*"]
+  }
+
+  # ssh_interface = "session_manager": Packer tunnels SSH through an SSM
+  # session to the builder, which is why no security group admits SSH. The
+  # session may start only on instances the template tagged as builders.
+  statement {
+    sid       = "PackerStartSession"
+    effect    = "Allow"
+    actions   = ["ssm:StartSession"]
+    resources = ["arn:aws:ec2:${var.region}:${local.account_id}:instance/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ssm:resourceTag/Name"
+      values   = ["packer-builder-gramps-web"]
+    }
+  }
+
+  statement {
+    sid       = "PackerSessionDocument"
+    effect    = "Allow"
+    actions   = ["ssm:StartSession"]
+    resources = ["arn:aws:ssm:${var.region}::document/AWS-StartSSHSession"]
+  }
+
+  # The session id carries the caller's session name, which is not known here.
+  statement {
+    sid       = "PackerEndSession"
+    effect    = "Allow"
+    actions   = ["ssm:TerminateSession", "ssm:ResumeSession"]
+    resources = ["arn:aws:ssm:${var.region}:${local.account_id}:session/*"]
+  }
+
+  statement {
+    sid       = "PackerSessionReads"
+    effect    = "Allow"
+    actions   = ["ssm:DescribeInstanceInformation", "ssm:DescribeSessions", "ssm:GetConnectionStatus"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "ami_build_images" {
+  name   = "${local.name}-images-ssm"
+  role   = aws_iam_role.ami_build.id
+  policy = data.aws_iam_policy_document.ami_build_images.json
+}
+
+# scripts/adopt-amis.sh (post_build). UpdateAutoScalingGroup checks that the
+# caller may launch from the templates it pins: ec2:RunInstances and
+# ec2:CreateTags are already granted region-wide in PackerBuild above, so only
+# PassRole for the instance role is new. Written to keep the write grants on
+# this stack's templates and group.
+data "aws_iam_policy_document" "ami_build_adopt" {
+  statement {
+    sid    = "AdoptReads"
+    effect = "Allow"
+    actions = [
+      "autoscaling:DescribeAutoScalingGroups",
+      "autoscaling:DescribeInstanceRefreshes",
+      "cloudwatch:DescribeAlarms",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "AdoptTemplateVersions"
+    effect    = "Allow"
+    actions   = ["ec2:CreateLaunchTemplateVersion", "ec2:DeleteLaunchTemplateVersions"]
+    resources = [for id in values(var.launch_template_ids) : "arn:aws:ec2:${var.region}:${local.account_id}:launch-template/${id}"]
+  }
+
+  statement {
+    sid       = "AdoptGroup"
+    effect    = "Allow"
+    actions   = ["autoscaling:UpdateAutoScalingGroup", "autoscaling:StartInstanceRefresh"]
+    resources = ["arn:aws:autoscaling:${var.region}:${local.account_id}:autoScalingGroup:*:autoScalingGroupName/${var.asg_name}"]
+  }
+
+  statement {
+    sid       = "PassInstanceRole"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = [var.instance_role_arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ec2.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "PublishAmiAge"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["GrampsWeb"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "ami_build_adopt" {
+  name   = "${local.name}-adopt"
+  role   = aws_iam_role.ami_build.id
+  policy = data.aws_iam_policy_document.ami_build_adopt.json
+}
+
+# The managed policy the SSM agent on the builder needs to register for the
+# Session Manager connection above.
+resource "aws_iam_role_policy_attachment" "ami_builder_ssm" {
+  role       = aws_iam_role.ami_builder.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }

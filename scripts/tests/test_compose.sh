@@ -26,7 +26,11 @@ service_block() {
 main() {
   _main_published="$(awk '/^ +ports:/ { in_ports = 1; next }
     in_ports && /^ +- / { print $2; next } { in_ports = 0 }' "$COMPOSE" | tr -d '"')"
-  assert_eq "only 443:443 is published" "443:443" "$_main_published"
+  assert_eq "only 443 and the loopback health listener are published" \
+    "443:443
+127.0.0.1:80:8080" "$_main_published"
+  assert_eq "every port but 443 is bound to the loopback address" "" \
+    "$(printf '%s\n' "$_main_published" | grep -v '^443:443$' | grep -v '^127\.0\.0\.1:' || true)"
 
   _main_proxy_ports="$(service_block proxy | grep -c '"443:443"' || true)"
   assert_eq "proxy publishes 443" "1" "$_main_proxy_ports"

@@ -55,6 +55,22 @@ load_runtime_env() {
   return 0
 }
 
+# True when the ASG has this instance in a Terminating state, i.e. it is
+# being replaced or scaled in (not rebooted). A failed lookup is false: the
+# caller then leaves the shutdown to systemd. Requires REGION from
+# instance.env.
+instance_terminating() {
+  _instance_terminating_token="$(imds_token)" || return 1
+  _instance_terminating_id="$(imds_instance_id "$_instance_terminating_token")" || return 1
+  _instance_terminating_state="$(aws autoscaling describe-auto-scaling-instances \
+    --instance-ids "$_instance_terminating_id" --region "$REGION" \
+    --query 'AutoScalingInstances[0].LifecycleState' --output text)" || return 1
+  case "$_instance_terminating_state" in
+  Terminating*) return 0 ;;
+  esac
+  return 1
+}
+
 # Detaches the data volume so the ASG's replacement can attach it immediately
 # instead of waiting for AWS to release it after termination. Stops the
 # health-watchdog timer first: disk_bytes would otherwise measure the root

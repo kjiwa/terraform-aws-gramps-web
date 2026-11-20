@@ -2,8 +2,8 @@
 # Builds the gramps-web-base AMIs (both architectures) with a pinned Packer
 # from this directory's gramps-ami.pkr.hcl, then prints the newest AMI per
 # architecture as a ready-to-paste ami_ids block. Runs inside the gramps-web-ami
-# CodeBuild project (build/ami/buildspec.yml) and from a workstation. With
-# ami_ids null, the next apply rolls the newest AMIs out; pin ami_ids to hold.
+# CodeBuild project (build/ami/buildspec.yml), which then adopts the AMIs
+# (scripts/adopt-amis.sh), and from a workstation, which only builds.
 #
 # Env:
 #   REGION              region to build in. CodeBuild injects it; workstation
@@ -16,6 +16,12 @@
 #   GRAMPS_WEB_VERSION  tag to pull. Both injected by CodeBuild;
 #                       empty on a workstation run pulls nothing (pull_images
 #                       logs and continues -- see build/ami/install.sh).
+#   BUILDER_SSM         "true" connects to the builder over SSM Session
+#                       Manager instead of public SSH. CodeBuild injects it;
+#                       a workstation run sets it only after the module is
+#                       applied (the builder needs its instance profile).
+#   BUILDER_SG_ID       security group of the builder, injected with
+#                       BUILDER_SSM; empty lets Packer create one.
 set -eu
 
 readonly LOG_PREFIX="build-ami"
@@ -45,6 +51,29 @@ readonly REPO_ROOT
 readonly PACKER_VERSION="1.16.2"
 readonly PACKER_DIR="/tmp/packer-$PACKER_VERSION"
 
+# The Session Manager plugin Packer shells out to for ssh_interface =
+# "session_manager". The checksum is of the pinned release's Ubuntu package,
+# computed when the pin was set: AWS publishes none beside it.
+readonly SSM_PLUGIN_VERSION="1.2.896.0"
+readonly SSM_PLUGIN_SHA256="53f51fcc67314a4bf85888a38a3967cd41f8d0f28a60a9469a63acf935ba713e"
+readonly SSM_PLUGIN_DIR="/tmp/session-manager-plugin-$SSM_PLUGIN_VERSION"
+
+install_session_manager_plugin() {
+  case "$(uname -sm)" in
+  "Linux x86_64") ;;
+  *) die "no session-manager-plugin on PATH and auto-install only covers Linux x86_64; install it" ;;
+  esac
+  log "installing session-manager-plugin $SSM_PLUGIN_VERSION..."
+  mkdir -p "$SSM_PLUGIN_DIR"
+  (
+    cd "$SSM_PLUGIN_DIR"
+    curl -fsSLo plugin.deb "https://s3.amazonaws.com/session-manager-downloads/plugin/$SSM_PLUGIN_VERSION/ubuntu_64bit/session-manager-plugin.deb"
+    echo "$SSM_PLUGIN_SHA256  plugin.deb" | sha256sum -c -
+    dpkg-deb -x plugin.deb root
+  )
+  PATH="$SSM_PLUGIN_DIR/root/usr/local/sessionmanagerplugin/bin:$PATH"
+}
+
 # Pinned download with checksum verification against HashiCorp's published
 # SHA256SUMS (fetched alongside: guards a corrupt or truncated download, not
 # a compromised origin).
@@ -67,14 +96,14 @@ install_packer() {
 }
 
 # The newest gramps-web-base AMI per architecture, printed as the ami_ids block
-# the operator can pin to hold them.
+# the operator can pin.
 print_pin_candidates() {
   _print_pin_candidates_block="$(aws ec2 describe-images --region "$REGION" --owners self \
     --filters "Name=tag:Name,Values=gramps-web-base" "Name=state,Values=available" \
     --query 'Images[].{arch:Architecture,id:ImageId,date:CreationDate}' \
     --output json |
     jq -r 'group_by(.arch)[] | max_by(.date) | "  \(.arch) = \"\(.id)\""')"
-  log "newest gramps-web-base AMIs. With ami_ids null the next apply uses them; to hold them, pin ami_ids."
+  log "newest gramps-web-base AMIs. To pin them instead of letting builds advance the launch templates, set ami_ids."
   printf 'ami_ids = {\n%s\n}\n' "$_print_pin_candidates_block" >&2
 }
 
@@ -94,18 +123,27 @@ main() {
   readonly ECR_REPO_URL
   GRAMPS_WEB_VERSION="${GRAMPS_WEB_VERSION:-}"
   readonly GRAMPS_WEB_VERSION
+  BUILDER_SSM="${BUILDER_SSM:-false}"
+  readonly BUILDER_SSM
+  BUILDER_SG_ID="${BUILDER_SG_ID:-}"
+  readonly BUILDER_SG_ID
 
   command -v packer >/dev/null 2>&1 || install_packer
+  if [ "$BUILDER_SSM" = true ]; then
+    command -v session-manager-plugin >/dev/null 2>&1 || install_session_manager_plugin
+  fi
   log "using $(packer version | head -n 1) in $REGION (git_sha: ${GIT_SHA:-none}, gramps_web_version: ${GRAMPS_WEB_VERSION:-none})"
 
   packer init "$SCRIPT_DIR"
   packer validate \
     -var "region=$REGION" -var "git_sha=$GIT_SHA" \
     -var "ecr_repo_url=$ECR_REPO_URL" -var "gramps_web_version=$GRAMPS_WEB_VERSION" \
+    -var "ssm_transport=$BUILDER_SSM" -var "builder_security_group_id=$BUILDER_SG_ID" \
     "$SCRIPT_DIR"
   packer build -timestamp-ui \
     -var "region=$REGION" -var "git_sha=$GIT_SHA" \
     -var "ecr_repo_url=$ECR_REPO_URL" -var "gramps_web_version=$GRAMPS_WEB_VERSION" \
+    -var "ssm_transport=$BUILDER_SSM" -var "builder_security_group_id=$BUILDER_SG_ID" \
     "$SCRIPT_DIR"
 
   print_pin_candidates

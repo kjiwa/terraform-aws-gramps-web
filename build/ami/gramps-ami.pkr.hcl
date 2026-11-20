@@ -37,6 +37,21 @@ variable "gramps_web_version" {
   default = ""
 }
 
+# Connect to the builder over SSM Session Manager instead of public SSH, in the
+# security group builder_security_group_id (no inbound rule). Needs the builder
+# instance profile (gramps-web-ami-builder, which carries the SSM policy) and
+# session-manager-plugin on the machine running Packer. Off for a workstation
+# build before the module is applied: Packer then opens a temporary SSH rule.
+variable "ssm_transport" {
+  type    = bool
+  default = false
+}
+
+variable "builder_security_group_id" {
+  type    = string
+  default = ""
+}
+
 locals {
   # Name is the stable tag every base AMI carries; both arches share it (the
   # architecture attribute disambiguates) and scripts/clean-amis.sh selects on
@@ -100,13 +115,15 @@ source "amazon-ebs" "gramps" {
 
   instance_type = local.builder_instance_types.arm64
 
-  # ECR read for the grampsweb pull below; scoped to the gramps-web repo, see
-  # modules/ami-build/iam.tf. Only present once module.ami_build has
-  # applied, so a workstation build with no ECR repo yet (install.sh's pull is
-  # already conditional for this) omits the profile instead of failing to find it.
-  iam_instance_profile = var.ecr_repo_url != "" ? "gramps-web-ami-builder" : null
+  # ECR read for the grampsweb pull below and SSM for ssm_transport; scoped in
+  # modules/ami-build/iam.tf. Only present once module.ami_build has applied, so
+  # a workstation build before then (install.sh's pull is already conditional
+  # for this) omits the profile instead of failing to find it.
+  iam_instance_profile = var.ecr_repo_url != "" || var.ssm_transport ? "gramps-web-ami-builder" : null
 
-  ssh_username = "ec2-user"
+  ssh_username      = "ec2-user"
+  ssh_interface     = var.ssm_transport ? "session_manager" : null
+  security_group_id = var.builder_security_group_id != "" ? var.builder_security_group_id : null
 
   # See builder_watchdog_user_data above for why this pair exists.
   shutdown_behavior = "terminate"
@@ -160,9 +177,11 @@ source "amazon-ebs" "gramps_x86" {
   instance_type = local.builder_instance_types.x86_64
 
   # See the arm64 source for the ECR read grant this needs and why it's conditional.
-  iam_instance_profile = var.ecr_repo_url != "" ? "gramps-web-ami-builder" : null
+  iam_instance_profile = var.ecr_repo_url != "" || var.ssm_transport ? "gramps-web-ami-builder" : null
 
-  ssh_username = "ec2-user"
+  ssh_username      = "ec2-user"
+  ssh_interface     = var.ssm_transport ? "session_manager" : null
+  security_group_id = var.builder_security_group_id != "" ? var.builder_security_group_id : null
 
   # See the arm64 source for why this pair exists.
   shutdown_behavior = "terminate"
@@ -215,6 +234,7 @@ build {
       "${path.root}/../../scripts/keel/rightsize-check.sh",
       "${path.root}/prewarm.sh",
       "${path.root}/prewarm.service",
+      "${path.root}/smoke.sh",
       "${path.root}/../app/bundle/docker-compose.yml",
     ]
     destination = "/tmp/"
@@ -227,6 +247,7 @@ build {
       "REGION=${var.region}",
       "ECR_REPO_URL=${var.ecr_repo_url}",
       "GRAMPS_WEB_VERSION=${var.gramps_web_version}",
+      "BUILDER_SSM=${var.ssm_transport}",
     ]
   }
 }
