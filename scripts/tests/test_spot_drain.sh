@@ -49,13 +49,13 @@ PATH="$WORK/bin:$PATH"
 cat >"$WORK/runtime.sh" <<'LIB'
 IMDS=http://imds.invalid
 imds_token() { echo token; }
-instance_terminating() { [ "${STUB_TERMINATING:-0}" = 1 ]; }
-detach_data_volume() { echo "detach_data_volume" >>"$STUB_LOG"; }
+instance_terminating() { [ -n "${REGION:-}" ] && [ "${STUB_TERMINATING:-0}" = 1 ]; }
+detach_data_volume() { [ -n "${REGION:-}" ] || return 1; echo "detach_data_volume" >>"$STUB_LOG"; }
 set_unhealthy() { echo "set_unhealthy${1:+ $1}" >>"$STUB_LOG"; }
 LIB
 GRAMPS_RUNTIME_LIB="$WORK/runtime.sh"
 export GRAMPS_RUNTIME_LIB
-printf 'COMPOSE_DIR=/opt/gramps\n' >"$WORK/instance.env"
+printf 'REGION=us-east-1\nCOMPOSE_DIR=/opt/gramps\n' >"$WORK/instance.env"
 
 # run_drain [VAR=value...] -- ARGS: fresh claim, prints the stub call log.
 run_drain() {
@@ -68,7 +68,7 @@ run_drain() {
   done
   shift
   # shellcheck disable=SC2086
-  env INSTANCE_ENV="$WORK/instance.env" DRAIN_CLAIM="$WORK/claim" DRAIN_WAIT_SECONDS=0 $_run_env \
+  env -u REGION INSTANCE_ENV="$WORK/instance.env" DRAIN_CLAIM="$WORK/claim" DRAIN_WAIT_SECONDS=0 $_run_env \
     sh "$DRAIN" "$@" >/dev/null 2>&1 || true
   cat "$STUB_LOG"
 }
@@ -105,7 +105,7 @@ detach_data_volume" \
     "sync
 detach_data_volume" \
     "$(run_drain STUB_TERMINATING=1 -- stop)"
-  printf 'COMPOSE_DIR=/opt/gramps\n' >"$WORK/instance.env"
+  printf 'REGION=us-east-1\nCOMPOSE_DIR=/opt/gramps\n' >"$WORK/instance.env"
 
   for _main_state in Terminating Terminating:Wait; do
     assert_status "ASG state $_main_state counts as terminating" 0 \

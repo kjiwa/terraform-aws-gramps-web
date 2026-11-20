@@ -41,12 +41,17 @@ log() {
 # shellcheck source=gramps-runtime.sh
 . "${GRAMPS_RUNTIME_LIB:-/usr/local/lib/gramps-runtime.sh}"
 
-# $1 = seconds of grace per container.
-stop_writers() {
+# The ExecStop process starts with no environment of its own: REGION and the
+# rest come from instance.env, before any use of them.
+load_env() {
   if [ -f "$INSTANCE_ENV" ]; then
     # shellcheck disable=SC1090
     . "$INSTANCE_ENV"
   fi
+}
+
+# $1 = seconds of grace per container.
+stop_writers() {
   if [ -n "${COMPOSE_DIR:-}" ]; then
     docker compose --env-file "$COMPOSE_DIR/.env" \
       -f "$COMPOSE_DIR/docker-compose.yml" \
@@ -84,6 +89,7 @@ await_drain() {
 # drain exists to prevent. detach_data_volume no-ops itself when EBS_VOLUME_ID
 # is empty (boot glue incomplete).
 drain_for_spot() {
+  load_env
   log "Spot interruption notice received; stopping the data-volume writers..."
   if ! claim_drain; then
     log "A drain is already running."
@@ -97,6 +103,7 @@ drain_for_spot() {
 
 # The ASG is already terminating the instance, so no Unhealthy mark.
 drain_for_termination() {
+  load_env
   if ! instance_terminating; then
     log "Not an ASG termination; leaving the shutdown to systemd."
     return 0
