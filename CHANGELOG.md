@@ -2,6 +2,22 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/). Until 1.0.0, a minor release may include breaking changes.
 
+## [1.8.1] - 2026-11-20
+
+### Fixed
+
+- The proxy refused to start with the module's own origin secret. nginx stores each key of the secret map in a hash bucket of `map_hash_bucket_size` bytes, 64 by default, and the 48-character secret does not fit: `could not build map_hash, you should increase map_hash_bucket_size: 64`. The new proxy container restarted in a loop and the first v1.8.0 deploy failed at ApplicationStart (502 until CodeDeploy rolled back). `nginx.conf` sets `map_hash_bucket_size 128;`, and `origin_secret` and `origin_secret_extra` values are limited to 32 to 64 letters and digits, which fit. The proxy test of v1.8.0 used a short secret, so it never loaded a real one.
+- `application_start.sh` watches the proxy for a few seconds after `up -d` and fails with its last 30 log lines if it is not staying up or the reload fails, so the error shows in the deployment output.
+
+### Added
+
+- `scripts/tests/test_proxy_stack.sh` brings the real compose file up in Docker with the rendered origin secret maps, runs `application_start.sh` and `validate_service.sh`, and checks the proxy stays up and answers on 443 and the loopback listener in log mode and, after a recreate with changed maps, in enforce mode. The pre-commit script-test hook also runs when `nginx.conf` or `docker-compose.yml` changes.
+- `validate_service.sh` takes `VALIDATE_URL` and `VALIDATE_TLS_URL` for tests.
+
+### Upgrade
+
+- Move the module ref to `v1.8.1`; `source_branch` stays `release-1.8`, which moves with the tag. The plan has no changes (the fix is in the deploy bundle and the AMI build's scripts). Then deploy (`scripts/deploy.sh --root <root> gramps`). A root that set `origin_secret` or `origin_secret_extra` outside 32 to 64 characters must change them.
+
 ## [1.8.0] - 2026-11-19
 
 ### Added

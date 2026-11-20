@@ -19,13 +19,13 @@ variable "ami_pin" {
 }
 
 variable "origin_secret" {
-  description = "Value CloudFront sends in X-Origin-Verify, or null to generate one. 32 or more letters and digits."
+  description = "Value CloudFront sends in X-Origin-Verify, or null to generate one. 32 to 64 letters and digits."
   type        = string
   default     = null
   sensitive   = true
   validation {
-    condition     = var.origin_secret == null || can(regex("^[A-Za-z0-9]{32,}$", var.origin_secret))
-    error_message = "origin_secret must be 32 or more letters and digits (it is written into an nginx map file)."
+    condition     = var.origin_secret == null || can(regex("^[A-Za-z0-9]{32,64}$", var.origin_secret))
+    error_message = "origin_secret must be 32 to 64 letters and digits (it is written into an nginx map file)."
   }
 }
 
@@ -35,8 +35,8 @@ variable "origin_secret_extra" {
   default     = []
   sensitive   = true
   validation {
-    condition     = alltrue([for v in var.origin_secret_extra : can(regex("^[A-Za-z0-9]{32,}$", v))])
-    error_message = "origin_secret_extra values must be 32 or more letters and digits (they are written into an nginx map file)."
+    condition     = alltrue([for v in var.origin_secret_extra : can(regex("^[A-Za-z0-9]{32,64}$", v))])
+    error_message = "origin_secret_extra values must be 32 to 64 letters and digits (they are written into an nginx map file)."
   }
 }
 

@@ -45,9 +45,17 @@ https:*)
   ;;
 esac
 STUB
+# A proxy that is running (or STUB_PROXY_STATE, STUB_PROXY_RESTARTS), logs one
+# line, and reloads unless STUB_RELOAD_FAIL.
 cat >"$WORK/bin/docker" <<'STUB'
 #!/bin/sh
 echo "docker $*" >>"$STUB_LOG"
+case "$*" in
+*"ps -q proxy"*) echo proxyid ;;
+"inspect "*) echo "${STUB_PROXY_STATE:-running} ${STUB_PROXY_RESTARTS:-0}" ;;
+*"logs --tail 30 proxy"*) echo "nginx: [emerg] boom" ;;
+*"nginx -s reload"*) [ -z "${STUB_RELOAD_FAIL:-}" ] || exit 1 ;;
+esac
 STUB
 chmod +x "$WORK/bin/"*
 PATH="$WORK/bin:$PATH"
@@ -132,12 +140,30 @@ ssm_optional() { :; }'
   assert_eq "validate, log mode: a 403 without the header fails" "status 1" \
     "$(run_validate STUB_HTTP=200 STUB_PUBLIC_NOHDR=403 STUB_PUBLIC_HDR=200)"
 
-  : >"$STUB_LOG"
-  INSTANCE_ENV="$WORK/instance.env" DEPLOY_LOG="$WORK/deploy.log" sh "$BUNDLE/application_start.sh" >/dev/null 2>&1
-  assert_eq "application_start brings the stack up, then reloads the proxy" \
-    "docker compose --env-file $WORK/compose/.env -f $WORK/compose/docker-compose.yml up -d --remove-orphans
-docker compose --env-file $WORK/compose/.env -f $WORK/compose/docker-compose.yml exec -T proxy nginx -s reload" \
+  # run_start [VAR=value...]: application_start.sh; prints its exit status and output.
+  _compose="docker compose --env-file $WORK/compose/.env -f $WORK/compose/docker-compose.yml"
+  run_start() {
+    : >"$STUB_LOG"
+    env "$@" INSTANCE_ENV="$WORK/instance.env" DEPLOY_LOG="$WORK/deploy.log" PROXY_WAIT_SECONDS=1 \
+      sh "$BUNDLE/application_start.sh" 2>&1 && echo "status 0" || echo "status 1"
+  }
+  _start_out="$(run_start A=1)"
+  assert_eq "application_start: up, wait for the proxy, then reload" \
+    "$_compose up -d --remove-orphans
+$_compose ps -q proxy
+docker inspect -f {{.State.Status}} {{.RestartCount}} proxyid
+$_compose exec -T proxy nginx -s reload" \
     "$(cat "$STUB_LOG")"
+  assert_eq "application_start succeeds" "status 0" "$(printf '%s\n' "$_start_out" | tail -n 1)"
+
+  _start_out="$(run_start STUB_PROXY_STATE=restarting STUB_PROXY_RESTARTS=2)"
+  assert_eq "a restarting proxy fails the start" "status 1" "$(printf '%s\n' "$_start_out" | tail -n 1)"
+  assert_eq "and the output carries the proxy's last log lines" "1" "$(printf '%s\n' "$_start_out" | grep -c 'nginx: \[emerg\] boom')"
+  assert_eq "a proxy that restarted while running fails the start" "status 1" \
+    "$(run_start STUB_PROXY_RESTARTS=1 | tail -n 1)"
+  _start_out="$(run_start STUB_RELOAD_FAIL=1)"
+  assert_eq "a failed reload fails the start with the proxy's log lines" "1 status 1" \
+    "$(printf '%s\n' "$_start_out" | grep -c 'nginx: \[emerg\] boom' | tr '\n' ' ')$(printf '%s\n' "$_start_out" | tail -n 1)"
   finish
 }
 

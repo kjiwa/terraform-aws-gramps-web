@@ -83,7 +83,7 @@ variable "ami_auto_build" {
 }
 
 variable "origin_secret" {
-  description = "Value CloudFront sends to the origin in X-Origin-Verify (string of 32 or more letters and digits), or null (the default) to generate one that never changes. Set it only to rotate (README, \"Origin secret\")."
+  description = "Value CloudFront sends to the origin in X-Origin-Verify (string of 32 to 64 letters and digits), or null (the default) to generate one that never changes. Set it only to rotate (README, \"Origin secret\")."
   type        = string
   default     = null
   sensitive   = true

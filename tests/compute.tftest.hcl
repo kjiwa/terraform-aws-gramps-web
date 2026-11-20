@@ -302,6 +302,17 @@ run "origin_secret_enforce_and_extras_reach_ssm" {
   }
 }
 
+run "origin_secret_values_must_fit_the_proxy_hash_bucket" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+  variables {
+    origin_secret = "AbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAb"
+  }
+  expect_failures = [var.origin_secret]
+}
+
 run "origin_secret_values_must_be_map_safe" {
   command = plan
   module {
