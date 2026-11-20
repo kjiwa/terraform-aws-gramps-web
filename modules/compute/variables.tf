@@ -4,12 +4,18 @@ variable "env" {
 }
 
 variable "ami_ids" {
-  description = "Per-architecture base AMI IDs (gramps-web-base Packer builds), resolved by the root module. One launch template per architecture binds to each; see launch_template.tf for how to list candidates."
+  description = "Per-architecture base AMI IDs (gramps-web-base Packer builds), resolved by the root module. One launch template per architecture is created with each; scripts/adopt-amis.sh advances them afterwards (see launch_template.tf)."
   type        = map(string)
   validation {
     condition     = sort(keys(var.ami_ids)) == tolist(["arm64", "x86_64"])
     error_message = "ami_ids must contain exactly the keys \"arm64\" and \"x86_64\"."
   }
+}
+
+variable "ami_pin" {
+  description = "The operator's ami_ids pin, or null. Only a change to it replaces the launch templates; ami_ids seeds image_id at creation, and scripts/adopt-amis.sh advances it afterwards."
+  type        = map(string)
+  default     = null
 }
 
 variable "active" {

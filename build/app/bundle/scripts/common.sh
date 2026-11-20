@@ -6,10 +6,10 @@
 # hook sets it before sourcing.
 # shellcheck shell=sh
 
-readonly INSTANCE_ENV="/etc/gramps/instance.env"
+readonly INSTANCE_ENV="${INSTANCE_ENV:-/etc/gramps/instance.env}"
 
 log() {
-  echo "[codedeploy] $*" | tee -a /var/log/gramps-deploy.log >&2
+  echo "[codedeploy] $*" | tee -a "${DEPLOY_LOG:-/var/log/gramps-deploy.log}" >&2
 }
 
 load_instance_env() {

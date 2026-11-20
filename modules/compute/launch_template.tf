@@ -1,13 +1,10 @@
-# Base AMIs built by Packer (build/ami/gramps-ami.pkr.hcl, normally via the
-# gramps-web-ami CodeBuild project), one per architecture. With ami_ids null the
-# root module follows the newest AMI, so a rebuild rolls out on the next apply
-# (new launch template version -> ASG instance refresh); pinning ami_ids holds
-# it. Rollback by pinning reaches only an AMI that clean-amis.sh still keeps.
-# Candidates, newest first:
-#   aws ec2 describe-images --owners self \
-#     --filters Name=tag:Name,Values=gramps-web-base Name=state,Values=available \
-#     --query 'reverse(sort_by(Images,&CreationDate))[].[Architecture,ImageId,CreationDate]' \
-#     --output text
+# Base AMIs built by Packer (build/ami/gramps-ami.pkr.hcl, by the gramps-web-ami
+# CodeBuild project). ami_ids only seeds image_id when a launch template is
+# created: after each build, scripts/adopt-amis.sh writes a new template version
+# with the newest AMI and repins the ASG to it by number, and image_id is
+# ignored so that Terraform does not revert it. A change of the ami_pin input
+# replaces the templates (terraform_data.image_pin). Rollback is repinning the
+# ASG to an older template version (README, "Base AMI").
 locals {
   # Architectures the ASG provisions across. Keys flow through to the launch
   # templates (one per arch) and the mixed-instances overrides.
@@ -87,6 +84,8 @@ resource "aws_launch_template" "this" {
 
   lifecycle {
     create_before_destroy = true
+    ignore_changes        = [image_id]
+    replace_triggered_by  = [terraform_data.image_pin]
 
     # gramps_env and frontend_config are siblings under one SSM path prefix;
     # catch a rename that splits them at plan time, not at boot.

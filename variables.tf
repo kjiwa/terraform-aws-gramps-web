@@ -53,7 +53,7 @@ variable "az" {
 }
 
 variable "ami_ids" {
-  description = "Base AMI ID per architecture (map with keys arm64 and x86_64), or null to use the newest self-owned AMI tagged Name=gramps-web-base. Null follows the newest AMI, so a new build rolls out on the next apply; pin to hold it. The build cleanup keeps only the newest AMI per architecture plus those referenced by launch template versions or running instances, so rolling back by pinning reaches only an AMI still referenced. The AMIs come from the build project this module creates."
+  description = "Base AMI ID per architecture (map with keys arm64 and x86_64), or null (the default) to seed the launch templates with the newest self-owned AMI tagged Name=gramps-web-base and let each build advance them (README, \"Base AMI\"). A pin is read when a launch template is created: changing it replaces the templates and starts an instance refresh, and while it is set the builds do not run on their own and nothing is adopted. Rolling back is repinning the Auto Scaling group to an older template version. The AMIs come from the build project this module creates."
   type        = map(string)
   default     = null
   validation {
@@ -64,6 +64,22 @@ variable "ami_ids" {
     condition     = var.ami_ids == null || alltrue([for v in values(var.ami_ids) : can(regex("^ami-[0-9a-f]+$", v))])
     error_message = "ami_ids values must be AMI IDs matching ^ami-[0-9a-f]+$."
   }
+}
+
+variable "ami_max_age_days" {
+  description = "Age in days (number, at least 1) beyond which a running instance's AMI makes the build that adopts a newer one start an instance refresh. The refresh replaces the only instance: expect an outage of several minutes (a Spot reclaim measured a median of 180 s; a refresh also waits for the replacement's CodeDeploy hook, unmeasured). Younger instances pick the new AMI up at their next replacement. Builds run weekly, so values under 7 act at the first build past the limit. Ignored while ami_ids is set."
+  type        = number
+  default     = 14
+  validation {
+    condition     = var.ami_max_age_days >= 1 && floor(var.ami_max_age_days) == var.ami_max_age_days
+    error_message = "ami_max_age_days must be a whole number of at least 1."
+  }
+}
+
+variable "ami_auto_build" {
+  description = "Build the base AMI weekly and when the app image for gramps.version is pushed (bool). Each build runs CodeBuild for about ten minutes plus two short builder instances and stores one AMI per architecture until superseded (cost unverified: not measured). false leaves builds to aws codebuild start-build. Ignored (no automatic builds) while ami_ids is set."
+  type        = bool
+  default     = true
 }
 
 variable "site_title" {

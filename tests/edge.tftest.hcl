@@ -36,11 +36,18 @@ override_resource {
   }
 }
 
+override_resource {
+  target          = aws_cloudfront_response_headers_policy.security
+  override_during = plan
+  values          = { id = "00000000-0000-0000-0000-00000000aaaa" }
+}
+
 variables {
   env              = "prod"
   primary_domain   = "example.org"
   redirect_domains = []
   eip_public_ip    = "192.0.2.10"
+  origin_secret    = "origin-secret-for-tests"
   zone_ids         = { "example.org" = "Z0000000000000TEST" }
 }
 
@@ -115,5 +122,83 @@ run "redirect_distribution_reaches_the_origin_over_https" {
       ])
     ])
     error_message = "The redirect distributions' ec2-origin must use https-only."
+  }
+}
+
+run "ec2_origin_carries_the_secret_header" {
+  command = plan
+  module {
+    source = "./modules/edge"
+  }
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
+  assert {
+    condition = alltrue([
+      for o in aws_cloudfront_distribution.primary.origin :
+      length([for h in o.custom_header : h if h.name == "X-Origin-Verify"]) == 1 if o.origin_id == "ec2-origin"
+    ])
+    error_message = "The primary distribution's ec2-origin must send X-Origin-Verify, which the proxy requires."
+  }
+  assert {
+    condition = alltrue([
+      for o in aws_cloudfront_distribution.primary.origin :
+      length(o.custom_header) == 0 if o.origin_id != "ec2-origin"
+    ])
+    error_message = "Only the EC2 origin may receive the secret; the S3, status and caller origins must not."
+  }
+}
+
+run "security_headers_policy_sets_hsts_nosniff_referrer_and_frame_ancestors" {
+  command = plan
+  module {
+    source = "./modules/edge"
+  }
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
+  assert {
+    condition     = aws_cloudfront_response_headers_policy.security.security_headers_config[0].strict_transport_security[0].access_control_max_age_sec >= 31536000
+    error_message = "HSTS must last at least a year."
+  }
+  assert {
+    condition     = aws_cloudfront_response_headers_policy.security.security_headers_config[0].content_type_options[0].override
+    error_message = "X-Content-Type-Options: nosniff must be set."
+  }
+  assert {
+    condition     = aws_cloudfront_response_headers_policy.security.security_headers_config[0].referrer_policy[0].referrer_policy == "strict-origin-when-cross-origin"
+    error_message = "A referrer policy must be set."
+  }
+  assert {
+    condition     = strcontains(aws_cloudfront_response_headers_policy.security.security_headers_config[0].content_security_policy[0].content_security_policy, "frame-ancestors")
+    error_message = "A frame-ancestors CSP must be set."
+  }
+}
+
+run "app_and_static_behaviors_carry_the_headers_policy" {
+  command = plan
+  module {
+    source = "./modules/edge"
+  }
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
+  assert {
+    condition     = aws_cloudfront_distribution.primary.default_cache_behavior[0].response_headers_policy_id == aws_cloudfront_response_headers_policy.security.id
+    error_message = "The default behavior must attach the security headers policy."
+  }
+  assert {
+    condition = alltrue([
+      for b in aws_cloudfront_distribution.primary.ordered_cache_behavior :
+      b.response_headers_policy_id == aws_cloudfront_response_headers_policy.security.id
+      if b.target_origin_id == "ec2-origin" || b.target_origin_id == "errors-s3"
+    ])
+    error_message = "Every behavior on the EC2 origin or the error pages must attach the security headers policy."
   }
 }

@@ -2,8 +2,8 @@
 # AfterInstall: assemble the compose env files -- .env (compose-interpolation
 # variables only), app.env (non-secret GRAMPSWEB_* config from SSM), and
 # secrets.env (GRAMPSWEB_SECRET_KEY / GRAMPSWEB_EMAIL_HOST_PASSWORD, fetched
-# individually from SSM) -- and pre-pull the image so ApplicationStart is
-# fast. app.env is deliberately not named gramps.env: that name is already
+# individually from SSM) -- render the proxy's origin secret map, and pre-pull
+# the image so ApplicationStart is fast. app.env is deliberately not named gramps.env: that name is already
 # the bundle's own digest-pinned-image file below ($GRAMPS_ENV).
 set -eu
 
@@ -76,6 +76,22 @@ write_env_file() {
   } >"$COMPOSE_DIR/secrets.env"
 }
 
+# The secret CloudFront sends in X-Origin-Verify (modules/compute/ssm.tf),
+# rendered as the nginx map nginx.conf includes. The parameter sits beside the
+# frontend config under /gramps-web/<env>/, so its path derives from that one
+# (a precondition in the launch template keeps the siblings together). No
+# fallback: a missing parameter fails the deploy, because an unenforced proxy
+# would be silent.
+render_origin_secret() {
+  _render_origin_secret_param="$(dirname -- "$SSM_FRONTEND_CONFIG_PARAM")/origin-secret"
+  log "Rendering $COMPOSE_DIR/origin-secret.map..."
+  _render_origin_secret_value="$(ssm_value "$_render_origin_secret_param")"
+  (
+    umask 077
+    printf '"%s" 1;\ndefault 0;\n' "$_render_origin_secret_value" >"$COMPOSE_DIR/origin-secret.map"
+  )
+}
+
 # Authenticate to ECR when the image lives in an ECR registry; a no-op for any
 # other registry (e.g. a GHCR fallback), which pulls anonymously. The registry
 # host is everything before the first '/' in the image reference.
@@ -140,6 +156,7 @@ main() {
   write_env_file "$_main_image"
   bootstrap_tree_metadata
   render_frontend_config
+  render_origin_secret
   install_origin_cert
   pull_image "$_main_image"
 }

@@ -18,6 +18,26 @@ resource "aws_ssm_parameter" "flask_secret" {
   }
 }
 
+# Shared secret CloudFront sends to the origin in X-Origin-Verify (modules/edge);
+# the proxy answers 403 without it (build/app/bundle/nginx.conf). Unlike the
+# Flask secret it rotates: replace random_password.origin_secret, apply, then
+# deploy (README, "Origin secret").
+resource "random_password" "origin_secret" {
+  length  = 48
+  special = false
+}
+
+resource "aws_ssm_parameter" "origin_secret" {
+  name        = "/gramps-web/${var.env}/origin-secret"
+  description = "Value of the X-Origin-Verify header CloudFront sends to the origin. Read by the CodeDeploy after_install hook."
+  type        = "SecureString"
+  value       = random_password.origin_secret.result
+
+  tags = {
+    Name = "gramps-web-origin-secret"
+  }
+}
+
 # Gramps Web's frontend runtime config (window.grampsjsConfig -- see the root
 # frontend variable in variables.tf for the full
 # option-by-option rationale). Built by merging conditional single-key maps

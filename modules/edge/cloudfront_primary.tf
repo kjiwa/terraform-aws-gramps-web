@@ -58,6 +58,15 @@ resource "aws_cloudfront_distribution" "primary" {
       origin_keepalive_timeout = 5
       origin_read_timeout      = 60
     }
+
+    # The proxy answers 403 to a request without this header
+    # (build/app/bundle/nginx.conf), so only this distribution reaches the
+    # origin's Elastic IP; the origin security group admits every CloudFront
+    # distribution.
+    custom_header {
+      name  = "X-Origin-Verify"
+      value = var.origin_secret
+    }
   }
 
   # Independent origin for custom error pages. Must NOT be the EC2 origin: when
@@ -115,8 +124,9 @@ resource "aws_cloudfront_distribution" "primary" {
     # Gramps Web is dynamic and authed; caching at edge would leak responses across users.
     # Host stays out: the origin certificate names origin.<primary_domain> only, and the
     # app builds its links from BASE_URL.
-    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
-    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
+    cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
+    origin_request_policy_id   = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
   }
 
   # Error pages served from S3. No origin request policy: forwarding client
@@ -129,7 +139,8 @@ resource "aws_cloudfront_distribution" "primary" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
 
-    cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
+    cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
   }
 
   # Caller-supplied behaviors (var.additional_cache_behaviors). Placed before
@@ -208,7 +219,8 @@ resource "aws_cloudfront_distribution" "primary" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
 
-    cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
+    cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
   }
 
   # The rest of the static surface. Mutually exclusive patterns -- no path
@@ -225,7 +237,8 @@ resource "aws_cloudfront_distribution" "primary" {
       cached_methods         = ["GET", "HEAD"]
       compress               = true
 
-      cache_policy_id = aws_cloudfront_cache_policy.static_assets.id
+      cache_policy_id            = aws_cloudfront_cache_policy.static_assets.id
+      response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
     }
   }
 

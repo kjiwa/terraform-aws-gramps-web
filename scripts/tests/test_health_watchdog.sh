@@ -72,6 +72,7 @@ main() {
   assert_eq "healthy: the count is cleared" "count=none" "$(run_watchdog 4 "$_main_env")"
   assert_eq "a 3xx counts as healthy" "count=none" "$(STUB_HTTPS=302 run_watchdog 4 "$_main_env")"
   assert_eq "https down, http up: healthy" "count=none" "$(STUB_HTTPS=000 STUB_HTTP=200 run_watchdog 4 "$_main_env")"
+  assert_eq "https 403 (origin secret enforced), loopback http up: healthy" "count=none" "$(STUB_HTTPS=403 STUB_HTTP=200 run_watchdog 4 "$_main_env")"
   assert_eq "a 403 is a failure, not health" "count=1" "$(STUB_HTTPS=403 STUB_HTTP=403 run_watchdog '' "$_main_env")"
   assert_eq "a failure increments the count" "count=5" "$(STUB_HTTPS=500 STUB_HTTP=500 run_watchdog 4 "$_main_env")"
   assert_eq "the tenth failure marks the instance unhealthy with the marker, then clears the count" \

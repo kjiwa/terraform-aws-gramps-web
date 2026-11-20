@@ -283,6 +283,16 @@ data "aws_iam_policy_document" "instance" {
     resources = ["*"]
   }
 
+  # gramps-spot-drain's ExecStop asks the ASG whether this instance is being
+  # terminated (a reboot must not detach the data volume). The call takes no
+  # resource.
+  statement {
+    sid       = "ReadOwnLifecycleState"
+    effect    = "Allow"
+    actions   = ["autoscaling:DescribeAutoScalingInstances"]
+    resources = ["*"]
+  }
+
   # Lets health-watchdog.sh publish disk/memory usage for the status page's
   # host_metrics panel -- DiskUsedPercent/MemUsedPercent, or (with
   # status_volume_metrics also on) DiskUsedBytes/DiskTotalBytes in place of

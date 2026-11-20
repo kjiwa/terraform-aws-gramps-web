@@ -1,7 +1,11 @@
 #!/bin/sh
-# ValidateService: confirm gunicorn is serving TLS on :443. Deliberately gates on
-# the web port only, NOT the LLM path: it reaches Bedrock over the network
-# and would make an otherwise-healthy deploy look failed on a transient error.
+# ValidateService: confirm the app answers through the proxy and the proxy
+# completes a TLS handshake on :443. The app is read on the loopback-only
+# listener (nginx.conf), because the public listener answers 403 without the
+# origin secret; the handshake is proven by any HTTP status from :443.
+# Deliberately gates on the web path only, NOT the LLM path: it reaches Bedrock
+# over the network and would make an otherwise-healthy deploy look failed on a
+# transient error.
 # curl -k: the certificate names origin.<domain>, not localhost.
 set -eu
 
@@ -12,8 +16,9 @@ SCRIPT_DIR="$(
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 
-readonly URL="https://localhost/"
-readonly TIMEOUT=240
+readonly URL="http://localhost/"
+readonly TLS_URL="https://localhost/"
+readonly TIMEOUT="${VALIDATE_TIMEOUT:-240}"
 
 # Busts the CloudFront cache for the app's own non-hashed static assets
 # (global.css, fonts/*, images/*, webawesome-styles/*, manifest.json) so a
@@ -55,6 +60,13 @@ invalidate_cache() {
   fi
 }
 
+# The public listener's TLS is what CloudFront needs; its status is not (403
+# without the secret).
+tls_up() {
+  _tls_up_code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 -k "$TLS_URL" || echo 000)"
+  [ "$_tls_up_code" != 000 ]
+}
+
 main() {
   _main_code=""
   load_instance_env
@@ -67,15 +79,17 @@ main() {
     _main_code="$(curl -o /dev/null -s -w '%{http_code}' --max-time 5 -k "$URL" || echo 000)"
     case "$_main_code" in
     2[0-9][0-9] | 3[0-9][0-9])
-      log "Healthy (HTTP $_main_code)."
-      invalidate_cache
-      prune_images
-      return 0
+      if tls_up; then
+        log "Healthy (HTTP $_main_code, TLS up)."
+        invalidate_cache
+        prune_images
+        return 0
+      fi
       ;;
     esac
     sleep 5
   done
-  log "ERROR: no healthy response from $URL within ${TIMEOUT}s"
+  log "ERROR: no healthy response from $URL and $TLS_URL within ${TIMEOUT}s"
   docker compose --env-file "$COMPOSE_DIR/.env" -f "$COMPOSE_DIR/docker-compose.yml" ps >&2 || true
   return 1
 }

@@ -18,6 +18,12 @@ variable "eip_public_ip" {
   type        = string
 }
 
+variable "origin_secret" {
+  description = "Value CloudFront sends in the X-Origin-Verify header on every request to the EC2 origin, which answers 403 without it (build/app/bundle/nginx.conf)."
+  type        = string
+  sensitive   = true
+}
+
 variable "zone_ids" {
   description = "Map of domain name to Route53 zone ID. Must cover primary and all redirect domains."
   type        = map(string)

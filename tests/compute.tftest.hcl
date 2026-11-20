@@ -190,3 +190,73 @@ run "instance_policy_covers_the_rightsize_check" {
     error_message = "The instance policy's RightsizePriceReads statement must grant every action the vendored rightsize check calls."
   }
 }
+
+run "image_pin_follows_only_the_operator_pin" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+
+  assert {
+    condition     = terraform_data.image_pin.input == null
+    error_message = "With no ami_pin the pin resource holds null, so a new build never replaces a launch template."
+  }
+}
+
+run "image_pin_carries_the_operator_pin" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+  variables {
+    ami_pin = { arm64 = "ami-0aaaaaaaaaaaaaaaa", x86_64 = "ami-0bbbbbbbbbbbbbbbb" }
+  }
+
+  assert {
+    condition     = terraform_data.image_pin.input.arm64 == "ami-0aaaaaaaaaaaaaaaa"
+    error_message = "A pin must reach terraform_data.image_pin, which replaces the templates when it changes."
+  }
+}
+
+run "launch_templates_are_seeded_per_architecture" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+
+  assert {
+    condition     = aws_launch_template.this["arm64"].image_id == "ami-0aaaaaaaaaaaaaaaa" && aws_launch_template.this["x86_64"].image_id == "ami-0bbbbbbbbbbbbbbbb"
+    error_message = "ami_ids must seed each launch template's image_id."
+  }
+}
+
+run "instance_may_read_its_own_lifecycle_state" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+
+  assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.instance.statement :
+      s.sid == "ReadOwnLifecycleState" && s.actions == toset(["autoscaling:DescribeAutoScalingInstances"])
+    ])
+    error_message = "gramps-spot-drain stop asks the ASG whether the instance is terminating; the instance policy must allow DescribeAutoScalingInstances."
+  }
+}
+
+run "origin_secret_is_a_secure_string_under_the_env_path" {
+  command = plan
+  module {
+    source = "./modules/compute"
+  }
+
+  assert {
+    condition     = aws_ssm_parameter.origin_secret.name == "/gramps-web/prod/origin-secret" && aws_ssm_parameter.origin_secret.type == "SecureString"
+    error_message = "The origin secret must be a SecureString at /gramps-web/<env>/origin-secret, under the path the instance role reads."
+  }
+  assert {
+    condition     = random_password.origin_secret.length >= 32 && !random_password.origin_secret.special
+    error_message = "The origin secret must be at least 32 characters with no special characters (it is written into an nginx map file)."
+  }
+}

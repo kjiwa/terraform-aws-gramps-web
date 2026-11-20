@@ -29,6 +29,7 @@ module "compute" {
   env                        = var.env
   active                     = var.active
   ami_ids                    = local.ami_ids
+  ami_pin                    = var.ami_ids
   subnet_ids                 = module.network.subnet_ids
   origin_sg_id               = module.network.origin_sg_id
   ebs_volume_id              = module.storage.ebs_volume_id
@@ -82,6 +83,7 @@ module "edge" {
   primary_domain   = var.primary_domain
   redirect_domains = local.redirect_domains
   eip_public_ip    = module.compute.eip_public_ip
+  origin_secret    = module.compute.origin_secret
   zone_ids         = local.zone_ids
 
   status_origins   = var.status.enabled ? module.status[0].origins : []
@@ -194,9 +196,11 @@ module "app_pipeline" {
   codebuild_image    = local.codebuild_image
 }
 
-# Base-AMI patch rebuilds under a scoped role. Manual-trigger:
+# Base-AMI builds under a scoped role: weekly, and when the app image for
+# gramps.version is pushed. With ami_ids null each build is adopted by the
+# launch templates (scripts/adopt-amis.sh); a pinned ami_ids turns the automatic
+# builds and the adoption off. Manual build:
 #   aws codebuild start-build --project-name gramps-web-ami
-# then apply to roll out the newest AMIs (or pin ami_ids to hold).
 module "ami_build" {
   source = "./modules/ami-build"
 
@@ -206,9 +210,19 @@ module "ami_build" {
   region          = local.region
   codebuild_image = local.codebuild_image
 
-  ecr_repository_url = module.compute.ecr_repository_url
-  ecr_repository_arn = module.compute.ecr_repository_arn
-  gramps_web_version = var.gramps.version
+  ecr_repository_url  = module.compute.ecr_repository_url
+  ecr_repository_arn  = module.compute.ecr_repository_arn
+  ecr_repository_name = element(split("/", module.compute.ecr_repository_url), 1)
+  gramps_web_version  = var.gramps.version
+
+  adopt_amis          = var.ami_ids == null
+  auto_build          = var.ami_auto_build && var.ami_ids == null
+  max_age_days        = var.ami_max_age_days
+  asg_name            = module.compute.asg_name
+  launch_template_ids = module.compute.launch_template_ids
+  instance_role_arn   = module.compute.instance_role_arn
+  refresh_alarm_names = [aws_cloudwatch_metric_alarm.instance_refresh_pathological.alarm_name]
+  alarm_topic_arn     = module.monitoring.alert_topic_arn
 }
 
 module "monitoring" {
