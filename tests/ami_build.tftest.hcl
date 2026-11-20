@@ -97,6 +97,13 @@ run "build_creates_no_security_group_and_scopes_image_attributes" {
     error_message = "ssm:StartSession must be limited to instances tagged as Packer builders."
   }
   assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.ami_build_images.statement :
+      s.sid == "PackerSessionDocument" && s.resources == toset(["arn:aws:ssm:us-east-1::document/AWS-StartPortForwardingSession"])
+    ])
+    error_message = "The session document must be AWS-StartPortForwardingSession, which Packer's session_manager communicator opens."
+  }
+  assert {
     condition     = aws_security_group.builder.name == "gramps-web-ami-builder" && aws_vpc_security_group_egress_rule.builder.ip_protocol == "-1"
     error_message = "The builder security group must exist with egress; no ingress rule is declared."
   }

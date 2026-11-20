@@ -8,6 +8,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 - The proxy refused to start with the module's own origin secret. nginx stores each key of the secret map in a hash bucket of `map_hash_bucket_size` bytes, 64 by default, and the 48-character secret does not fit: `could not build map_hash, you should increase map_hash_bucket_size: 64`. The new proxy container restarted in a loop and the first v1.8.0 deploy failed at ApplicationStart (502 until CodeDeploy rolled back). `nginx.conf` sets `map_hash_bucket_size 128;`, and `origin_secret` and `origin_secret_extra` values are now limited to 32 to 64 letters and digits, which fit (the cap is new in 1.8.1; v1.8.0 accepted any length). The proxy test of v1.8.0 used a short secret, so it never loaded a real one.
 - `application_start.sh` runs `nginx -t` on the new `nginx.conf` and the rendered maps in a throwaway container before it touches the running proxy, so a configuration nginx rejects fails the deploy with the nginx error while the old proxy keeps serving. After `up -d` it fails, with the proxy's last 30 log lines, if the proxy is not running or restarted during the deploy, or if `nginx -t` or the reload fails inside it. `PROXY_WAIT_SECONDS` must be a number.
+- The build role allowed `ssm:StartSession` on the wrong SSM document (`AWS-StartSSHSession`); Packer's session_manager communicator opens `AWS-StartPortForwardingSession`, so every AMI build failed with AccessDenied. The `PackerSessionDocument` statement now names it.
+- The AMI root volume is now encrypted (`encrypted = true` on the Packer builder's root device mapping, default EBS key), so new AMI snapshots are encrypted.
 
 ### Added
 
@@ -15,7 +17,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Upgrade
 
-- Move the module ref to `v1.8.1`; `source_branch` stays `release-1.8`, which moves with the tag. The plan has no changes (the fix is in the deploy bundle and the AMI build's scripts). Then deploy (`scripts/deploy.sh --root <root> gramps`). A root that set `origin_secret` or `origin_secret_extra` outside 32 to 64 characters must change them.
+- Move the module ref to `v1.8.1`; `source_branch` stays `release-1.8`, which moves with the tag. The plan updates only the build role's `-images-ssm` policy; no refresh. Then deploy (`scripts/deploy.sh --root <root> gramps`). A root that set `origin_secret` or `origin_secret_extra` outside 32 to 64 characters must change them.
 
 ## [1.8.0] - 2026-11-19
 

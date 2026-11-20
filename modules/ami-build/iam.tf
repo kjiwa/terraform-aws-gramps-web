@@ -240,9 +240,10 @@ data "aws_iam_policy_document" "ami_build_images" {
     resources = ["arn:aws:ec2:${var.region}::image/*"]
   }
 
-  # ssh_interface = "session_manager": Packer tunnels SSH through an SSM
-  # session to the builder, which is why no security group admits SSH. The
-  # session may start only on instances the template tagged as builders.
+  # ssh_interface = "session_manager": Packer tunnels SSH through an
+  # AWS-StartPortForwardingSession session to the builder, which is why no
+  # security group admits SSH. The session may start only on instances the
+  # template tagged as builders.
   statement {
     sid       = "PackerStartSession"
     effect    = "Allow"
@@ -260,7 +261,7 @@ data "aws_iam_policy_document" "ami_build_images" {
     sid       = "PackerSessionDocument"
     effect    = "Allow"
     actions   = ["ssm:StartSession"]
-    resources = ["arn:aws:ssm:${var.region}::document/AWS-StartSSHSession"]
+    resources = ["arn:aws:ssm:${var.region}::document/AWS-StartPortForwardingSession"]
   }
 
   # The session id carries the caller's session name, which is not known here.

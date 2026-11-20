@@ -76,6 +76,7 @@ locals {
     volume_size           = 24
     volume_type           = "gp3"
     delete_on_termination = true
+    encrypted             = true
   }
 
   # Both arches have 2 vCPU and build in about the same time, so the sizes follow
@@ -139,6 +140,7 @@ source "amazon-ebs" "gramps" {
       volume_size           = launch_block_device_mappings.value.volume_size
       volume_type           = launch_block_device_mappings.value.volume_type
       delete_on_termination = launch_block_device_mappings.value.delete_on_termination
+      encrypted             = launch_block_device_mappings.value.encrypted
     }
   }
 
@@ -197,6 +199,7 @@ source "amazon-ebs" "gramps_x86" {
       volume_size           = launch_block_device_mappings.value.volume_size
       volume_type           = launch_block_device_mappings.value.volume_type
       delete_on_termination = launch_block_device_mappings.value.delete_on_termination
+      encrypted             = launch_block_device_mappings.value.encrypted
     }
   }
 
