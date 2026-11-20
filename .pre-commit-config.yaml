@@ -55,7 +55,7 @@ repos:
         entry: sh scripts/tests/run.sh
         language: system
         pass_filenames: false
-        files: ^(scripts/|build/.*\.sh$)
+        files: ^(scripts/|build/.*\.sh$|build/app/bundle/(nginx\.conf|docker-compose\.yml)$)
       - id: keel-drift
         name: vendored keel scripts match their tag
         entry: sh scripts/check-keel-drift.sh
