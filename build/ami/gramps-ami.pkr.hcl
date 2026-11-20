@@ -247,6 +247,7 @@ build {
       "REGION=${var.region}",
       "ECR_REPO_URL=${var.ecr_repo_url}",
       "GRAMPS_WEB_VERSION=${var.gramps_web_version}",
+      "BUILDER_SSM=${var.ssm_transport}",
     ]
   }
 }

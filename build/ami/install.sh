@@ -5,7 +5,7 @@
 # unattended security updates, and pre-pulls the valkey, proxy and grampsweb
 # images. Ends with smoke.sh, before the cleanup that removes the SSH key.
 # Runs as root via: sudo -E sh '{{.Path}}'
-# Env vars injected by Packer: REGION, ECR_REPO_URL, GRAMPS_WEB_VERSION
+# Env vars injected by Packer: REGION, ECR_REPO_URL, GRAMPS_WEB_VERSION, BUILDER_SSM
 # Files staged under /tmp: everything the file provisioner in
 #   gramps-ami.pkr.hcl stages there.
 set -eu
@@ -16,7 +16,12 @@ log() {
 
 install_packages() {
   log "Upgrading system packages..."
-  dnf upgrade -y
+  # Upgrading the SSM agent restarts it, which would drop a Session Manager
+  # build's own connection; the base AMI's agent stays until the next rebuild.
+  _install_packages_exclude=""
+  [ "${BUILDER_SSM:-false}" != true ] || _install_packages_exclude="--exclude=amazon-ssm-agent"
+  # shellcheck disable=SC2086 # empty or one option
+  dnf upgrade -y $_install_packages_exclude
 
   log "Installing spal-release..."
   dnf install -y spal-release
@@ -216,12 +221,19 @@ cleanup_packages() {
   rm -rf /var/cache/dnf
 }
 
-# Ensure the SSM agent starts at boot and clear the per-instance state this
-# build registered, so instances launched from the AMI register cleanly. The
+# Ensure the SSM agent starts at boot and, on a public-SSH build, clear the
+# per-instance state this build registered, so instances launched from the AMI
+# register cleanly. A Session Manager build (BUILDER_SSM=true) reaches this very
+# script through the agent, so stopping it here would drop the connection
+# mid-build; the agent then goes down with the builder's shutdown instead. The
 # installation dir itself is left alone, per AWS guidance.
 reset_ssm_agent() {
-  log "Resetting SSM agent state..."
   systemctl enable amazon-ssm-agent
+  if [ "${BUILDER_SSM:-false}" = true ]; then
+    log "Leaving the SSM agent running: the build connects through it."
+    return 0
+  fi
+  log "Resetting SSM agent state..."
   systemctl stop amazon-ssm-agent
   rm -rf /var/lib/amazon/ssm/i-* /var/lib/amazon/ssm/ipc
 }
