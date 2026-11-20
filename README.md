@@ -94,9 +94,42 @@ terraform apply
 scripts/deploy.sh --root <root> gramps
 ```
 
-The deploy builds the image from the upstream release plus your addons, pushes it to ECR, and rolls it out with CodeDeploy. Expect a brief interruption while the container swaps. Instances pull the image from ECR by digest, so the base AMI needs no rebuild; its pre-pulled image only shortens a cold boot, and a rebuild refreshes it.
+The deploy builds the image from the upstream release plus your addons, pushes it to ECR, and rolls it out with CodeDeploy. Expect a brief interruption while the container swaps. Instances pull the image from ECR by digest, so the base AMI needs no rebuild; its pre-pulled image only shortens a cold boot, and the build that follows a push of the new tag refreshes it ([Base AMI](#base-ami)).
 
 To roll back, set the previous version, apply, and deploy. Restore the snapshot ([restore](docs/restore.md)) only if the new version migrated the database.
+
+## Base AMI
+
+The launch templates boot a Packer-built image, `gramps-web-base`: Amazon Linux 2023, Docker, the agents, the watchdogs and the images valkey, nginx and Gramps Web pre-pulled. `dnf-automatic` applies security updates to a running instance (no reboot), so an instance that lives for weeks stays patched between rebuilds.
+
+**Build.** The `gramps-web-ami` CodeBuild project builds both architectures weekly (Sundays 06:00 UTC) and when the app image for `gramps.version` is pushed to ECR, that is, on a deploy. `ami_auto_build = false` leaves builds to `aws codebuild start-build --project-name gramps-web-ami`. Before the snapshot, Packer runs `build/ami/smoke.sh` on the builder: docker is active, the compose file's pinned images and the `gramps.version` image are present, the baked scripts and units are installed and enabled, and `dnf-automatic` is set to security updates. It does not boot the finished AMI, so cloud-init, the volume attach and the app starting are first tested by the first launch. A failed check leaves no AMI, and the `gramps-web-ami-failed` alarm notifies. A build runs about ten minutes; a bump of `gramps.version` is baked once the deploy has pushed the image, and a build before then fails the check. Packer reaches the builder over SSM Session Manager, so no security group admits SSH.
+
+**Adoption.** With `ami_ids` null, a build that passed ends with `scripts/adopt-amis.sh`. It writes a new launch template version per architecture that differs from the latest only in `ImageId`, repins the Auto Scaling group to those version numbers (never `$Latest`, so a Terraform template change still starts a refresh), and keeps the newest five versions plus the default and the pinned one. It starts an instance refresh only when a running instance's AMI is older than `ami_max_age_days` (14); a younger instance picks the new AMI up at its next replacement, which on Spot is usually within days. The refresh uses the group's preferences and its alarm, and replaces the only instance, with an outage of minutes ([module reference](#module-reference)). Nothing is touched while a refresh runs or the refresh alarm is in ALARM. The build publishes `GrampsWeb` `AmiAgeDays`, the age of the oldest running AMI; the `gramps-web-ami-age` alarm fires at twice `ami_max_age_days`.
+
+Terraform seeds `image_id` when it creates a launch template and ignores it afterwards, so a plan never reverts an adopted AMI. After the upgrade to 1.8 the templates keep the AMIs they already have until the first build adopts a newer one.
+
+**Pin.** `ami_ids` holds the AMIs: changing it replaces the launch templates and starts a refresh, and while it is set the automatic builds and the adoption stop. Candidates, newest first:
+
+```sh
+aws ec2 describe-images --owners self \
+  --filters Name=tag:Name,Values=gramps-web-base Name=state,Values=available \
+  --query 'reverse(sort_by(Images,&CreationDate))[].[Architecture,ImageId,CreationDate]' \
+  --output text
+```
+
+**Roll back.** Repin the group to an older template version, then refresh. Take the version numbers from `aws ec2 describe-launch-template-versions` for each template (`launch_template_ids` output, one per architecture) and keep the group's other settings:
+
+```sh
+aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names gramps-web \
+  --query 'AutoScalingGroups[0].MixedInstancesPolicy' > policy.json
+# edit policy.json: set each LaunchTemplateSpecification's Version, drop LaunchTemplateName
+aws autoscaling update-auto-scaling-group --auto-scaling-group-name gramps-web \
+  --mixed-instances-policy file://policy.json
+aws autoscaling start-instance-refresh --auto-scaling-group-name gramps-web \
+  --preferences '{"MinHealthyPercentage":0}'
+```
+
+While the group is pinned behind a template's latest version, later builds write versions but leave the group alone. Repin to the latest version, or apply Terraform after a template change, to resume; the age alarm reminds you if you forget. `clean-amis.sh` keeps every AMI a template version references, so versions kept by `adopt-amis.sh` stay available.
 
 ## Sleeping the site
 
@@ -108,9 +141,9 @@ CodePipeline and CodeBuild pull `build/` and `scripts/` from `repo_url` on `sour
 
 ```hcl
 module "gramps_web" {
-  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.7.0"
+  source        = "git::https://github.com/kjiwa/terraform-aws-gramps-web.git?ref=v1.8.0"
   repo_url      = "https://github.com/<you>/terraform-aws-gramps-web"
-  source_branch = "release-1.7"
+  source_branch = "release-1.8"
   # ...
 }
 ```
@@ -148,7 +181,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
    terraform init
    terraform apply -target=module.gramps_web.aws_codeconnections_connection.github \
      -var primary_domain=example.org -var alert_email=you@example.org \
-     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.7
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.8
    ```
 
 4. Approve it: in the console, open Developer Tools, Settings, Connections, update the pending `gramps-web` connection, and install the GitHub app on your fork.
@@ -157,7 +190,7 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
    ```sh
    terraform apply -var primary_domain=example.org -var alert_email=you@example.org \
-     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.7
+     -var repo_url=https://github.com/<you>/terraform-aws-gramps-web -var source_branch=release-1.8
    ```
 
    The first apply in a new account can fail while the Auto Scaling group launches its first instance ("Authentication Failure"); re-running the apply succeeded in testing. The status page at `/_status` is off by default: set `status = { enabled = true }` on the module (`min_role` picks who may view it) after raising the account's Lambda concurrency quota (see the `status` input).
@@ -173,7 +206,9 @@ The builds run that branch's code with deploy permissions, so point `repo_url` a
 
 ## Security and limits
 
-- CloudFront reaches the origin over HTTPS with an ACM exportable certificate for `origin.<primary_domain>`, which the instance exports at deploy time. The origin security group admits only the CloudFront origin-facing prefix list on port 443, but no shared-secret header is checked, so any CloudFront distribution can reach the origin's Elastic IP.
+- CloudFront reaches the origin over HTTPS with an ACM exportable certificate for `origin.<primary_domain>`, which the instance exports at deploy time. The origin security group admits only the CloudFront origin-facing prefix list on port 443, which every CloudFront distribution shares, so CloudFront also sends a secret in `X-Origin-Verify` and the proxy answers 403 without it. The secret is a `random_password` in the SSM parameter `/gramps-web/<env>/origin-secret`; the deploy writes it into the proxy's map file, and the app never receives it. On-instance health checks use a loopback-only listener. To rotate, run `terraform apply -replace=module.<name>.module.compute.random_password.origin_secret` and then `scripts/deploy.sh gramps`: requests fail with 403 between CloudFront taking the new value and the deploy.
+- CloudFront adds HSTS (one year, no subdomains or preload), `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN` and a `frame-ancestors 'self'` CSP to the app, its static assets and the error pages. The status page and `additional_cache_behaviors` set their own.
+- Instance metadata allows a hop limit of 2, so the app containers can read the instance role's credentials (S3 media, Bedrock, SSM parameters, the data volume, the EIP). This is an accepted risk of running the containers on the host's bridge network: any code that runs in the app container is trusted with the role. Narrowing it means giving the containers a role of their own (or a credential proxy) in place of the host role, and is not done here.
 - SES starts in the sandbox in a new account. Invite and reset emails reach only verified recipients until you request production access.
 - One deployment per account: resource names are fixed, and `env` namespaces only SSM parameters and CodeDeploy.
 - `prevent_destroy` on the data volume and media bucket makes `terraform destroy` stop by design; [docs/teardown.md](docs/teardown.md) lists the steps. The audit trail bucket is Object-Locked for a year by default, which blocks teardown of a trial.
@@ -196,6 +231,7 @@ output "gramps_web" {
 | `scripts/azmove.sh` | Move or re-key the data volume. |
 | `scripts/media.sh` | Reclaim orphaned media objects and normalize media paths. |
 | `scripts/clean-amis.sh` | Remove superseded base AMIs. |
+| `scripts/adopt-amis.sh` | Point the launch templates at the newest base AMIs; the build runs it. |
 
 Procedures: [cross-account backup](docs/cross-account-backup.md), [restore](docs/restore.md), [AZ move](docs/az-move.md).
 
@@ -240,7 +276,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Licensed 
 | active | Whether the site runs (bool). False sleeps it: zero instances and no canary alarms, all data kept; public IPv4, KMS keys, the hosted zone, ECR, EBS, and the origin certificate still bill (about 10 to 16 USD per month, between the README's estimated and measured Cost columns); waking takes about five minutes. | `bool` | `true` | no |
 | additional\_cache\_behaviors | Extra ordered cache behaviors on the primary distribution (list of objects) that route paths to additional\_origins. See modules/edge/variables.tf for the shape and the paths that must not be overlapped. | ```list(object({ path_pattern = string target_origin_id = string allowed_methods = optional(list(string), ["GET", "HEAD"]) cache_policy_id = optional(string, "658327ea-f89d-4fab-a63d-7e88639e58f6") origin_request_policy_id = optional(string) function_associations = optional(list(object({ event_type = string function_arn = string })), []) }))``` | `[]` | no |
 | additional\_origins | Extra CloudFront origins on the primary distribution (map of origin ID to object), for serving content beside the app. See modules/edge/variables.tf for the shape. | ```map(object({ domain_name = string origin_access_control_id = optional(string) }))``` | `{}` | no |
-| ami\_ids | Base AMI ID per architecture (map with keys arm64 and x86\_64), or null to use the newest self-owned AMI tagged Name=gramps-web-base. Null follows the newest AMI, so a new build rolls out on the next apply; pin to hold it. The build cleanup keeps only the newest AMI per architecture plus those referenced by launch template versions or running instances, so rolling back by pinning reaches only an AMI still referenced. The AMIs come from the build project this module creates. | `map(string)` | `null` | no |
+| ami\_auto\_build | Build the base AMI weekly and when the app image for gramps.version is pushed (bool). Each build runs CodeBuild for about ten minutes plus two short builder instances and stores one AMI per architecture until superseded (cost unverified: not measured). false leaves builds to aws codebuild start-build. Ignored (no automatic builds) while ami\_ids is set. | `bool` | `true` | no |
+| ami\_ids | Base AMI ID per architecture (map with keys arm64 and x86\_64), or null (the default) to seed the launch templates with the newest self-owned AMI tagged Name=gramps-web-base and let each build advance them (README, "Base AMI"). A pin is read when a launch template is created: changing it replaces the templates and starts an instance refresh, and while it is set the builds do not run on their own and nothing is adopted. Rolling back is repinning the Auto Scaling group to an older template version. The AMIs come from the build project this module creates. | `map(string)` | `null` | no |
+| ami\_max\_age\_days | Age in days (number, at least 1) beyond which a running instance's AMI makes the build that adopts a newer one start an instance refresh. The refresh replaces the only instance: expect an outage of several minutes (a Spot reclaim measured a median of 180 s; a refresh also waits for the replacement's CodeDeploy hook, unmeasured). Younger instances pick the new AMI up at their next replacement. Builds run weekly, so values under 7 act at the first build past the limit. Ignored while ami\_ids is set. | `number` | `14` | no |
 | api | Non-secret Gramps Web API settings (object). registration is open, unlisted (open endpoint, no sign-up link) or closed. tree\_id is required when tree is not main. Unset (null) fields keep upstream defaults. extra passes other upstream keys without the GRAMPSWEB\_ prefix and is stored in a plain SSM parameter, so never put secrets in it. | ```object({ tree = optional(string, "main") tree_id = optional(string) registration = optional(string, "open") disable_telemetry = optional(bool, false) pillow_max_image_pixels = optional(number) max_thumbnail_file_bytes = optional(number) log_level = optional(string) rate_limit_media_archive = optional(string) cors_origins = optional(string) extra = optional(map(string), {}) })``` | `{}` | no |
 | az | Availability zone of the instance and data volume (string), or null for the region's first available zone. Changing it on a live deployment replaces the volume (docs/az-move.md). | `string` | `null` | no |
 | backup | AWS Backup of the data volume and media bucket (object), billed per GiB-month of recovery points. mode is local, cross\_region (adds a copy in region, default us-east-2, with a second vault and key), cross\_account (copies into a vault account\_id owns under dest\_vault\_name; docs/cross-account-backup.md), or disabled. retention\_days is in days (0 for remote\_retention\_days means the same as local); schedule is a cron or rate expression in UTC. | ```object({ mode = optional(string, "local") region = optional(string, "") account_id = optional(string, "") retention_days = optional(number, 7) remote_retention_days = optional(number, 0) dest_vault_name = optional(string, "gramps-web-backup-replica") schedule = optional(string, "cron(0 3 * * ? *)") })``` | `{}` | no |
