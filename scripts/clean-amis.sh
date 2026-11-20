@@ -9,12 +9,11 @@
 # tag:Name=gramps-web-base, state=available) and removes all but the keep set:
 #
 #   - the newest AMI per architecture (what an unpinned ami_ids follows),
-#   - any AMI referenced by a current gramps-web launch template version or a
-#     running/pending gramps-web instance (this protects the pinned or
-#     currently deployed AMI once newer builds exist; a root snapshot must
-#     never be pulled out from under a live instance or a template the ASG
-#     could still launch from). A rollback by pinning reaches only AMIs kept
-#     here.
+#   - any AMI referenced by any version of a gramps-web launch template or by a
+#     running/pending gramps-web instance (a root snapshot must never be pulled
+#     out from under a live instance or a template version the ASG could still
+#     be pinned to). A rollback to an older template version reaches only AMIs
+#     kept here; scripts/adopt-amis.sh bounds how many versions exist.
 #
 # Any failure while building the keep set aborts before anything is deleted:
 # a lost API call must not silently shrink the set of protected AMIs.
@@ -69,7 +68,7 @@ list_base_amis() {
   printf '%s\n' "$_list_base_amis_images" | jq -c 'sort_by(.date)[]'
 }
 
-# AMI ids referenced by a current gramps-web launch template version or a live
+# AMI ids referenced by any gramps-web launch template version or a live
 # gramps-web instance; these survive regardless of age. Whitespace-separated,
 # possibly with duplicates (membership checks don't care). Every aws call
 # stands alone -- no pipes, no `|| true` -- so a throttled or failed lookup
@@ -83,11 +82,11 @@ list_in_use_amis() {
   _list_in_use_amis_lts="$(aws ec2 describe-launch-templates --region "$REGION" \
     --filters "Name=launch-template-name,Values=gramps-web-*" \
     --query 'LaunchTemplates[].LaunchTemplateId' --output text)"
-  # $Latest is what the ASG launches from; $Default covers a pinned template.
+  # No --versions: every version, not just $Latest and $Default. The ASG pins
+  # a numeric version, and rolling back repins an older one.
   for _list_in_use_amis_lt in $_list_in_use_amis_lts; do
-    # shellcheck disable=SC2016 # $Latest/$Default are literal API selectors
     aws ec2 describe-launch-template-versions --region "$REGION" \
-      --launch-template-id "$_list_in_use_amis_lt" --versions '$Latest' '$Default' \
+      --launch-template-id "$_list_in_use_amis_lt" \
       --query 'LaunchTemplateVersions[].LaunchTemplateData.ImageId' \
       --output text
   done
@@ -118,7 +117,7 @@ classify() {
       if in_list "$_classify_id" "$_classify_keep_newest"; then
         log "KEEP   $_classify_id  $_classify_name  ($_classify_date)  [newest for its arch]"
       elif in_list "$_classify_id" "$_classify_in_use"; then
-        log "KEEP   $_classify_id  $_classify_name  ($_classify_date)  [in use (instance or launch template)]"
+        log "KEEP   $_classify_id  $_classify_name  ($_classify_date)  [in use (instance or launch template version)]"
       else
         log "DELETE $_classify_id  $_classify_name  ($_classify_date)  snapshots: $_classify_snaps"
         printf '%s\t%s\n' "$_classify_id" "$_classify_snaps"
