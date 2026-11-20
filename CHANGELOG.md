@@ -2,6 +2,19 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/). Until 1.0.0, a minor release may include breaking changes.
 
+## [1.9.0] - 2026-11-20
+
+### Changed
+
+- `modules/status`, `modules/availability` and `modules/monitoring` use terraform-aws-status-page v0.9.0. The status page gains 44 px touch targets, scoped captions, the running image's age, a note when a newer image is adopted at the next replacement, and median recovery. v0.8.0 (also new here) lists every instance on the page and attributes Spot reclaims per instance; this module runs one.
+- The status Lambda's policy gains `ec2:DescribeLaunchTemplateVersions`.
+- Move `source_branch` along with the tag (`release-1.9`).
+
+### Upgrade
+
+- `terraform init -upgrade`, then apply. The plan updates the status Lambda's code, environment and policy, and the availability Lambda's code. It changes no launch template or Auto Scaling group, so it starts no instance refresh.
+- An availability state written by v0.7.x with a Spot warning not yet attributed is ignored once; the outage it was for is attributed by the other checks.
+
 ## [1.8.1] - 2026-11-20
 
 ### Fixed
