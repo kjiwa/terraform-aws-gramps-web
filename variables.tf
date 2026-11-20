@@ -83,10 +83,14 @@ variable "ami_auto_build" {
 }
 
 variable "origin_secret" {
-  description = "Value CloudFront sends to the origin in X-Origin-Verify (string of 32 or more letters and digits), or null (the default) to generate one that never changes. Set it only to rotate (README, \"Origin secret\")."
+  description = "Value CloudFront sends to the origin in X-Origin-Verify (string of 32 to 64 letters and digits), or null (the default) to generate one that never changes. Set it only to rotate (README, \"Origin secret\")."
   type        = string
   default     = null
   sensitive   = true
+  validation {
+    condition     = var.origin_secret == null || can(regex("^[A-Za-z0-9]{32,64}$", var.origin_secret))
+    error_message = "origin_secret must be 32 to 64 characters, letters and digits only."
+  }
 }
 
 variable "origin_secret_extra" {
@@ -94,6 +98,10 @@ variable "origin_secret_extra" {
   type        = list(string)
   default     = []
   sensitive   = true
+  validation {
+    condition     = alltrue([for v in var.origin_secret_extra : can(regex("^[A-Za-z0-9]{32,64}$", v))])
+    error_message = "Every origin_secret_extra value must be 32 to 64 characters, letters and digits only."
+  }
 }
 
 variable "origin_secret_enforce" {

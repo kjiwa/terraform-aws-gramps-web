@@ -45,9 +45,26 @@ https:*)
   ;;
 esac
 STUB
+# The proxy: `inspect` answers "<id> <status> <restarts>", from
+# STUB_INSPECT_BEFORE on its first call and STUB_INSPECT_AFTER on later ones
+# (default: a recreated, running proxy). STUB_PREFLIGHT_FAIL, STUB_TEST_FAIL and
+# STUB_RELOAD_FAIL fail `docker run ... -t`, `exec ... nginx -t` and the reload.
 cat >"$WORK/bin/docker" <<'STUB'
 #!/bin/sh
 echo "docker $*" >>"$STUB_LOG"
+case "$*" in
+"run "*)
+  [ -z "${STUB_PREFLIGHT_FAIL:-}" ] || { echo "nginx: [emerg] bad config"; exit 1; }
+  ;;
+*"ps -q proxy"*) echo proxyid ;;
+"inspect "*)
+  if [ -f "$STUB_LOG.inspected" ]; then echo "${STUB_INSPECT_AFTER:-new running 0}"; else
+    touch "$STUB_LOG.inspected"; echo "${STUB_INSPECT_BEFORE:-old running 0}"; fi
+  ;;
+*"logs --tail 30 proxy"*) echo "nginx: [emerg] boom" ;;
+*"nginx -t"*) [ -z "${STUB_TEST_FAIL:-}" ] || exit 1 ;;
+*"nginx -s reload"*) [ -z "${STUB_RELOAD_FAIL:-}" ] || exit 1 ;;
+esac
 STUB
 chmod +x "$WORK/bin/"*
 PATH="$WORK/bin:$PATH"
@@ -70,7 +87,8 @@ render_origin_secret"
 run_validate() {
   : >"$STUB_LOG"
   printf 'REGION=us-east-1\nCELERY_REGION=us-east-1\nSSM_RUNTIME_PARAM=/p/a\nSSM_FLASK_SECRET_PARAM=/p/b\nSSM_SMTP_PASSWORD_PARAM=/p/c\nSSM_FRONTEND_CONFIG_PARAM=/p/d\nGRAMPS_DATA_ROOT=/d\nCOMPOSE_DIR=%s\n' "$WORK/compose" >"$WORK/instance.env"
-  env "$@" INSTANCE_ENV="$WORK/instance.env" DEPLOY_LOG="$WORK/deploy.log" VALIDATE_TIMEOUT=1 sh "$BUNDLE/validate_service.sh" >/dev/null 2>&1 && echo "status 0" || echo "status 1"
+  _run_validate_script="$(validate_copy "$BUNDLE" "$WORK/validate" "http://localhost/" "https://localhost/" 1)"
+  env "$@" INSTANCE_ENV="$WORK/instance.env" DEPLOY_LOG="$WORK/deploy.log" sh "$_run_validate_script" >/dev/null 2>&1 && echo "status 0" || echo "status 1"
 }
 
 # write_proxy_files MODE: the files after_install renders ("1" enforces).
@@ -132,12 +150,68 @@ ssm_optional() { :; }'
   assert_eq "validate, log mode: a 403 without the header fails" "status 1" \
     "$(run_validate STUB_HTTP=200 STUB_PUBLIC_NOHDR=403 STUB_PUBLIC_HDR=200)"
 
-  : >"$STUB_LOG"
-  INSTANCE_ENV="$WORK/instance.env" DEPLOY_LOG="$WORK/deploy.log" sh "$BUNDLE/application_start.sh" >/dev/null 2>&1
-  assert_eq "application_start brings the stack up, then reloads the proxy" \
-    "docker compose --env-file $WORK/compose/.env -f $WORK/compose/docker-compose.yml up -d --remove-orphans
-docker compose --env-file $WORK/compose/.env -f $WORK/compose/docker-compose.yml exec -T proxy nginx -s reload" \
+  assert_eq "the production validate script reads no URL or timeout from the environment" "0" \
+    "$(grep -c 'VALIDATE_' "$BUNDLE/validate_service.sh" || true)"
+
+  cp "$BUNDLE/../docker-compose.yml" "$WORK/compose/docker-compose.yml"
+  # run_start [VAR=value...]: application_start.sh; prints its output and exit status.
+  _compose="docker compose --env-file $WORK/compose/.env -f $WORK/compose/docker-compose.yml"
+  run_start() {
+    : >"$STUB_LOG"
+    rm -f "$STUB_LOG.inspected"
+    env PROXY_WAIT_SECONDS=1 "$@" INSTANCE_ENV="$WORK/instance.env" DEPLOY_LOG="$WORK/deploy.log" \
+      sh "$BUNDLE/application_start.sh" 2>&1 && echo "status 0" || echo "status 1"
+  }
+  last_line() { printf '%s\n' "$1" | tail -n 1; }
+  has_line() { printf '%s\n' "$1" | grep -c -e "$2" || true; }
+  _mounts="-v $WORK/compose/nginx.conf:/etc/nginx/conf.d/default.conf:ro -v $WORK/compose/origin-secret.map:/etc/nginx/origin-secret.map:ro -v $WORK/compose/origin-enforce.map:/etc/nginx/origin-enforce.map:ro -v /etc/gramps/tls:/etc/gramps/tls:ro"
+
+  _start_out="$(run_start A=1)"
+  assert_eq "application_start: check the config in a throwaway container, up, wait, test, reload" \
+    "docker run --rm --entrypoint nginx $_mounts docker.io/library/nginx:1.30-alpine -t
+$_compose ps -q proxy
+docker inspect -f {{.Id}} {{.State.Status}} {{.RestartCount}} proxyid
+$_compose up -d --remove-orphans
+$_compose ps -q proxy
+docker inspect -f {{.Id}} {{.State.Status}} {{.RestartCount}} proxyid
+$_compose ps -q proxy
+docker inspect -f {{.Id}} {{.State.Status}} {{.RestartCount}} proxyid
+$_compose exec -T proxy nginx -t
+$_compose exec -T proxy nginx -s reload" \
     "$(cat "$STUB_LOG")"
+  assert_eq "application_start succeeds" "status 0" "$(last_line "$_start_out")"
+
+  _start_out="$(run_start STUB_PREFLIGHT_FAIL=1)"
+  assert_eq "a config nginx rejects fails before the running proxy is touched" "status 1" "$(last_line "$_start_out")"
+  assert_eq "the pre-flight error is in the output" "1" "$(has_line "$_start_out" 'nginx: \[emerg\] bad config')"
+  assert_eq "no compose command ran after the failed pre-flight" "0" "$(grep -c 'docker compose' "$STUB_LOG" || true)"
+
+  _start_out="$(run_start STUB_INSPECT_BEFORE='same running 2' STUB_INSPECT_AFTER='same running 2')"
+  assert_eq "a healthy proxy with a historical restart count deploys" "status 0" "$(last_line "$_start_out")"
+  assert_eq "a proxy that was not recreated is checked once, not waited on" "2" "$(grep -c 'inspect' "$STUB_LOG")"
+
+  _start_out="$(run_start STUB_INSPECT_BEFORE='old running 2' STUB_INSPECT_AFTER='new running 0')"
+  assert_eq "a recreated proxy starts counting from zero" "status 0" "$(last_line "$_start_out")"
+
+  _start_out="$(run_start STUB_INSPECT_BEFORE='same running 2' STUB_INSPECT_AFTER='same running 3')"
+  assert_eq "a restart during the deploy fails it" "status 1" "$(last_line "$_start_out")"
+  assert_eq "with the proxy's last log lines" "1" "$(has_line "$_start_out" 'nginx: \[emerg\] boom')"
+
+  _start_out="$(run_start STUB_INSPECT_AFTER='new restarting 4')"
+  assert_eq "a crash-looping new proxy fails the deploy" "status 1" "$(last_line "$_start_out")"
+  assert_eq "with the proxy's last log lines" "1" "$(has_line "$_start_out" 'nginx: \[emerg\] boom')"
+
+  _start_out="$(run_start STUB_TEST_FAIL=1)"
+  assert_eq "a config the running proxy rejects (nginx -t) fails before the reload" "status 1" "$(last_line "$_start_out")"
+  assert_eq "and the reload never ran" "0" "$(grep -c 'nginx -s reload' "$STUB_LOG" || true)"
+
+  _start_out="$(run_start STUB_RELOAD_FAIL=1)"
+  assert_eq "a failed reload fails the deploy with the proxy's log lines" "1 status 1" \
+    "$(has_line "$_start_out" 'nginx: \[emerg\] boom') $(last_line "$_start_out")"
+
+  _start_out="$(run_start PROXY_WAIT_SECONDS=abc)"
+  assert_eq "a non-numeric PROXY_WAIT_SECONDS fails loudly, before any docker call" "status 1 0" \
+    "$(last_line "$_start_out") $(grep -c docker "$STUB_LOG" || true)"
   finish
 }
 
