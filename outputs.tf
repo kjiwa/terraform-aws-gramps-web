@@ -107,9 +107,3 @@ output "backup_region" {
   description = "Region of the off-site backup copy destination; the module's own region when backups stay local or are disabled. Read by scripts/restore.sh."
   value       = local.backup_region
 }
-
-output "origin_secret" {
-  description = "Value CloudFront sends in X-Origin-Verify. Read it before a rotation to keep it as an origin_secret_extra value."
-  value       = module.compute.origin_secret
-  sensitive   = true
-}

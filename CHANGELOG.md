@@ -13,7 +13,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - `build/ami/smoke.sh` runs on the Packer builder before the snapshot and fails the build when docker is not active, a pinned or the `gramps.version` image is missing, a baked script or unit is missing or disabled, or `dnf-automatic` is not set to security updates.
 - The image installs `dnf-automatic` with `upgrade_type = security` and `apply_updates = yes`.
 - The origin secret: a `random_password` in the SSM parameter `/gramps-web/<env>/origin-secret`, sent by CloudFront as `X-Origin-Verify`. The proxy checks it on 443 and, with `origin_secret_enforce = true`, answers 403 to a missing or wrong value; by default it only logs the result. The proxy also listens on `127.0.0.1:80` for the on-instance health checks.
-- `origin_secret_enforce` (default false), `origin_secret` (override, for rotation) and `origin_secret_extra` (further accepted values, for rotation), and the root output `origin_secret`. The README's "Origin secret" gives the rollout and the three-step rotation.
+- `origin_secret_enforce` (default false), `origin_secret` (override, for rotation) and `origin_secret_extra` (further accepted values, for rotation). The README's "Origin secret" gives the rollout and the three-step rotation.
 - A CloudFront response headers policy (HSTS for one year, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN`, a `frame-ancestors 'self'` CSP) on the app, its static assets and the error pages.
 - Outputs `launch_template_ids`, `instance_role_arn`, `origin_secret` (compute) and `alert_topic_arn` (monitoring), consumed by the root.
 - The instance policy gains `autoscaling:DescribeAutoScalingInstances`.

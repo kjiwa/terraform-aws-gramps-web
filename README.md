@@ -154,7 +154,11 @@ CloudFront sends `X-Origin-Verify` on every request to the instance. The secret 
 
 3. Set `origin_secret_enforce = true`, apply, and deploy. The deploy fails if the proxy's behavior does not match: without the header it must answer exactly 403, with the secret not 403 (`validate_service.sh`). To go back, set it to `false`, apply and deploy.
 
-**Rotate.** The proxy accepts `origin_secret` and every `origin_secret_extra` value, so a new value is introduced before CloudFront sends it. Generate it first (`openssl rand -hex 24`; letters and digits, 32 or more), and read the current one with `terraform output -json gramps_web | jq -r .origin_secret`.
+**Rotate.** The proxy accepts `origin_secret` and every `origin_secret_extra` value, so a new value is introduced before CloudFront sends it. Generate it first (`openssl rand -hex 24`; letters and digits, 32 or more), and read the current one from SSM (no output carries it: a sensitive output would make a root that exports the module object sensitive):
+
+```sh
+aws ssm get-parameter --name /gramps-web/<env>/origin-secret --with-decryption --query Parameter.Value --output text
+```
 
 1. Set `origin_secret_extra = ["<new>"]`, apply, and deploy: nginx accepts the current and the new value; CloudFront still sends the current one.
 2. Set `origin_secret = "<new>"` and `origin_secret_extra = ["<old>"]`, apply, and wait for CloudFront to report Deployed: it now sends the new value, which nginx already accepts. Deploy to have the instance read the new current value.
@@ -354,7 +358,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Licensed 
 | gramps\_pipeline\_name | App CodePipeline name. Run by scripts/deploy.sh gramps, which names it as a constant. |
 | media\_bucket\_arn | S3 media bucket ARN. Read by scripts/backup.sh run and scripts/restore.sh drill, which pass it to `aws backup start-backup-job --resource-arn`. |
 | media\_bucket\_name | S3 media bucket name. Read by scripts/media.sh and scripts/restore.sh drill. |
-| origin\_secret | Value CloudFront sends in X-Origin-Verify. Read it before a rotation to keep it as an origin\_secret\_extra value. |
 | primary\_distribution\_arn | CloudFront distribution ARN for the primary site. Scope an additional\_origins S3 bucket policy to it. |
 | primary\_distribution\_id | CloudFront distribution ID for the primary site (manual invalidations). |
 | primary\_domain | Primary domain the site is served from (var.primary\_domain). Read by scripts/media.sh to reach the app API. |
